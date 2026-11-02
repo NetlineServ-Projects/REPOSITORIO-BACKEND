@@ -9,7 +9,7 @@
     "start": "node src/server.js",
     "migrate": "prisma migrate deploy",
     "seed": "prisma db seed",
-    "start:prod": "npm run migrate && npm run seed && npm run start",
+    "start:prod": "npm run migrate && npm run seed && exec node src/server.js",
     "test": "echo \"Sem testes configurados ainda.\" && exit 0"
   },
   "prisma": {

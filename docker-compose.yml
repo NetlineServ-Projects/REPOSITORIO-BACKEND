@@ -1,71 +1,57 @@
 services:
+  api:
+    build: .
+    # No servidor o pipeline escolhe a versão publicada; localmente o "build" cria-a
+    image: ${API_IMAGE:-netlineserv/repositorio-backend:demo}
+    env_file:
+      - .env
+    environment:
+      # Dentro do Docker a base de dados chama-se "db" (o .env aponta para localhost)
+      DATABASE_URL: mysql://${DB_USER}:${DB_PASSWORD}@db:${DB_PORT}/${DB_NAME}
+      NODE_ENV: production
+    networks:
+      - repositorionetwork
+    ports:
+      - ${HOST_PORT}:${PORT}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/usr/src/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:${PORT}/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   db:
     image: mysql:8
-    restart: unless-stopped
-
     command: --mysql-native-password=ON
-
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
-
-    # Só acessível a partir da própria máquina (127.0.0.1): a API liga-se pela rede interna
-    # do Docker e a base de dados nunca fica exposta à Internet
-    ports:
-      - "127.0.0.1:${DB_HOST_PORT}:${DB_PORT}"
-
+    networks:
+      - repositorionetwork
     volumes:
       - db_data:/var/lib/mysql
-
+    # Só acessível a partir da própria máquina, nunca da Internet
+    ports:
+      - 127.0.0.1:${DB_HOST_PORT}:${DB_PORT}
+    restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"
-        ]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 10s
 
-  api:
-    # No servidor usa a imagem publicada pelo pipeline (API_IMAGE escolhe a versão, ex.
-    # netlineserv/repositorio-backend:<commit> para voltar atrás); localmente, "build" cria-a
-    image: ${API_IMAGE:-netlineserv/repositorio-backend:demo}
-    build: .
-    restart: unless-stopped
-
-    depends_on:
-      db:
-        condition: service_healthy
-
-    ports:
-      - "${HOST_PORT}:${PORT}"
-
-    volumes:
-      - ./uploads:/usr/src/app/uploads
-
-    environment:
-      NODE_ENV: production
-      PORT: ${PORT}
-      DATABASE_URL: mysql://${DB_USER}:${DB_PASSWORD}@db:${DB_PORT}/${DB_NAME}
-      JWT_SECRET: ${JWT_SECRET}
-      FRONTEND_URL: ${FRONTEND_URL}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      # Cookie da sessão só por HTTPS; "false" apenas num servidor de testes sem HTTPS
-      COOKIE_SECURE: ${COOKIE_SECURE:-true}
-      # O pipeline põe "false" porque aplica as migrações num passo próprio
-      MIGRAR_NO_ARRANQUE: ${MIGRAR_NO_ARRANQUE:-true}
-
-      ADMIN_NOME: ${ADMIN_NOME}
-      ADMIN_EMAIL: ${ADMIN_EMAIL}
-      ADMIN_SENHA: ${ADMIN_SENHA}
-      ADMIN_NUMERO: ${ADMIN_NUMERO}
-      ADMIN_CARGO: ${ADMIN_CARGO}
-      ADMIN_DEPARTAMENTO: ${ADMIN_DEPARTAMENTO}
+networks:
+  repositorionetwork:
+    driver: bridge
 
 volumes:
   db_data:

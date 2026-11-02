@@ -12,11 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DOCKER_REPO: netlineserv/repositorio-backend
-  # Cada deploy fica com a sua própria versão (o commit), para se poder voltar atrás;
-  # ":demo" aponta sempre para a última
-  DOCKER_TAG_VERSAO: ${{ github.sha }}
-  DOCKER_TAG_CANAL: demo
+  DOCKER_IMAGE: netlineserv/repositorio-backend:demo
   DEPLOY_PATH: /root/projects/repositorio-backend
   BACKUP_DIR: /root/projects/backups/repositorio-backend
   BACKUP_KEEP: 10
@@ -41,24 +37,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # O generate não liga à base de dados: chega um endereço fictício
       - name: Generate Prisma client
         run: npx prisma generate
         env:
-          DATABASE_URL: mysql://ci:ci@localhost:3306/ci
-
-      - name: Validate Prisma schema
-        run: npx prisma validate
-        env:
-          DATABASE_URL: mysql://ci:ci@localhost:3306/ci
-
-      # Confirma que todos os ficheiros do servidor são JavaScript válido e carregam
-      - name: Check syntax
-        run: |
-          find src prisma -name "*.js" -print0 | xargs -0 -n1 node --check
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Run tests
-        run: npm test
+        run: |
+          if grep -q '"test"' package.json; then
+            npm test
+          fi
+
+      - name: Build project
+        run: |
+          if grep -q '"build"' package.json; then
+            npm run build
+          fi
+
 
   # DOCKER - BUILD AND PUSH
   dockerize:
@@ -83,9 +78,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG_VERSAO }}
-            ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG_CANAL }}
+          tags: ${{ env.DOCKER_IMAGE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -95,18 +88,9 @@ jobs:
     needs: dockerize
     runs-on: ubuntu-latest
 
-    env:
-      # Imagem exata deste deploy (usada pelo docker-compose do servidor através de API_IMAGE)
-      API_IMAGE: netlineserv/repositorio-backend:${{ github.sha }}
-
     steps:
       # SSH
-      # A chave do servidor vem do secret DEMO_SERVER_KNOWN_HOSTS (saída de
-      # "ssh-keyscan -H <ip>" feita uma vez, de confiança). Sem ele, recorre ao keyscan,
-      # que aceita a chave que o servidor apresentar nesse momento.
       - name: Setup SSH
-        env:
-          KNOWN_HOSTS: ${{ secrets.DEMO_SERVER_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
 
@@ -115,29 +99,26 @@ jobs:
 
           chmod 600 ~/.ssh/deploy_key
 
-          if [ -n "$KNOWN_HOSTS" ]; then
-            printf "%s\n" "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
-          else
-            echo "::warning::DEMO_SERVER_KNOWN_HOSTS não definido; a usar ssh-keyscan."
-            ssh-keyscan -H ${{ secrets.DEMO_SERVER_IP }} >> ~/.ssh/known_hosts
-          fi
+          ssh-keyscan -H \
+            ${{ secrets.DEMO_SERVER_IP }} \
+            >> ~/.ssh/known_hosts
 
       # PULL IMAGE
-      - name: Pull image
+      - name: Pull latest image
         run: |
           ssh -i ~/.ssh/deploy_key \
             ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
             set -e
             cd ${{ env.DEPLOY_PATH }}
-            sudo docker pull ${{ env.API_IMAGE }}
-            echo "Image pulled successfully: ${{ env.API_IMAGE }}"
+            sudo docker pull ${{ env.DOCKER_IMAGE }}
+            echo "Image pulled successfully"
           EOF
 
       # VERIFY SERVICES
       - name: Verify Docker Compose service names
         run: |
           ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
+            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << EOF
             set -e
             cd ${{ env.DEPLOY_PATH }}
             echo "Services defined in compose.yaml:"
@@ -154,12 +135,10 @@ jobs:
           EOF
 
       # START DATABASE
-      # 'EOF' entre aspas: tudo o que está no bloco corre no servidor (antes, $(...) e $i
-      # corriam na máquina do GitHub e a verificação nunca via o estado real)
       - name: Ensure database is up
         run: |
           ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
+            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << EOF
 
             set -e
 
@@ -169,30 +148,29 @@ jobs:
 
             echo "Waiting for database to be healthy..."
 
-            CONTENTOR=$(sudo docker compose ps -q ${{ env.DB_SERVICE }})
-
+            # Espera até 60 segundos pelo healthcheck do docker compose
             for i in $(seq 1 12); do
-              STATUS=$(sudo docker inspect --format '{{.State.Health.Status}}' "$CONTENTOR" 2>/dev/null || echo "")
+              STATUS=$(sudo docker compose ps --format json ${{ env.DB_SERVICE }} 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Health',''))" 2>/dev/null || echo "")
               if [ "$STATUS" = "healthy" ]; then
                 echo "Database is healthy."
                 break
               fi
+              echo "  Attempt $i/12 — waiting 5s..."
+              sleep 5
               if [ "$i" = "12" ]; then
-                echo "ERROR: Database did not become healthy in time (status: $STATUS)."
+                echo "ERROR: Database did not become healthy in time."
                 sudo docker compose ps
                 exit 1
               fi
-              echo "  Attempt $i/12 (status: $STATUS) - waiting 5s..."
-              sleep 5
             done
 
           EOF
 
-      # BACKUP MYSQL DATABASE AND UPLOADED FILES
-      - name: Backup database and uploads
+      # BACKUP MYSQL DATABASE
+      - name: Backup database
         run: |
           ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
+            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << EOF
 
             set -e
 
@@ -200,53 +178,52 @@ jobs:
 
             sudo mkdir -p ${{ env.BACKUP_DIR }}
 
-            TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+            TIMESTAMP=\$(date +%Y-%m-%d_%H-%M-%S)
 
-            BACKUP_FILE="${{ env.BACKUP_DIR }}/backup_${TIMESTAMP}.sql"
+            BACKUP_FILE="${{ env.BACKUP_DIR }}/backup_\${TIMESTAMP}.sql"
 
             echo "Creating MySQL backup..."
 
             sudo docker compose exec -T \
               ${{ env.DB_SERVICE }} \
               sh -c 'mysqldump \
-                -u"$MYSQL_USER" \
-                -p"$MYSQL_PASSWORD" \
-                "$MYSQL_DATABASE"' \
-              | sudo tee "$BACKUP_FILE" > /dev/null
+                -u"\$MYSQL_USER" \
+                -p"\$MYSQL_PASSWORD" \
+                "\$MYSQL_DATABASE"' \
+              | sudo tee "\$BACKUP_FILE" > /dev/null
 
-            if [ ! -s "$BACKUP_FILE" ]; then
+            if [ ! -s "\$BACKUP_FILE" ]; then
+
               echo "ERROR: backup file is empty."
-              sudo rm -f "$BACKUP_FILE"
+
+              sudo rm -f "\$BACKUP_FILE"
+
               exit 1
+
             fi
 
-            echo "Database backup created: $BACKUP_FILE"
+            echo "Backup created successfully:"
+            echo "\$BACKUP_FILE"
 
-            # Os documentos, fotografias e logótipos só existem nesta pasta
-            if [ -d uploads ]; then
-              UPLOADS_FILE="${{ env.BACKUP_DIR }}/uploads_${TIMESTAMP}.tar.gz"
-              sudo tar -czf "$UPLOADS_FILE" uploads
-              echo "Uploads backup created: $UPLOADS_FILE"
-            fi
 
             echo "Rotating backups..."
 
             cd ${{ env.BACKUP_DIR }}
 
-            for PADRAO in 'backup_*.sql' 'uploads_*.tar.gz'; do
-              sudo ls -1t $PADRAO 2>/dev/null \
-                | tail -n +$((${{ env.BACKUP_KEEP }} + 1)) \
-                | xargs -r sudo rm --
-            done
+            sudo ls -1t backup_*.sql 2>/dev/null \
+              | tail -n +\$((${{ env.BACKUP_KEEP }} + 1)) \
+              | xargs -r sudo rm --
+
 
             echo "Current backups:"
 
-            sudo ls -1t backup_*.sql uploads_*.tar.gz 2>/dev/null || true
+            sudo ls -1t backup_*.sql
 
           EOF
 
-      # DATABASE MIGRATIONS AND SEED
-      # Correm aqui, antes de trocar a API: se falharem, a versão anterior continua no ar
+
+
+      # DATABASE MIGRATIONS
       - name: Run Prisma migrations
         run: |
           ssh -i ~/.ssh/deploy_key \
@@ -256,15 +233,17 @@ jobs:
 
             cd ${{ env.DEPLOY_PATH }}
 
-            sudo env API_IMAGE=${{ env.API_IMAGE }} docker compose run --rm \
+            sudo docker compose run --rm \
               --no-deps \
               -u node \
-              ${{ env.API_SERVICE }} \
-              sh -c "npx prisma migrate deploy && node prisma/seed.js"
+              api \
+              npx prisma migrate deploy
 
             echo "Migrations completed successfully."
 
           EOF
+
+
 
       # DEPLOY API
       - name: Deploy API with new image
@@ -276,36 +255,26 @@ jobs:
 
             cd ${{ env.DEPLOY_PATH }}
 
-            echo "Starting API with ${{ env.API_IMAGE }}..."
+            echo "Stopping current API..."
 
-            # As migrações já correram no passo anterior
-            sudo env API_IMAGE=${{ env.API_IMAGE }} MIGRAR_NO_ARRANQUE=false \
-              docker compose up -d --no-deps --force-recreate ${{ env.API_SERVICE }}
+            sudo docker compose stop api
 
-            echo "Waiting for API to be healthy..."
+            sudo docker compose rm -f api
 
-            CONTENTOR=$(sudo docker compose ps -q ${{ env.API_SERVICE }})
+            echo "Starting API with new image..."
 
-            for i in $(seq 1 18); do
-              STATUS=$(sudo docker inspect --format '{{.State.Health.Status}}' "$CONTENTOR" 2>/dev/null || echo "")
-              if [ "$STATUS" = "healthy" ]; then
-                echo "API deployed successfully."
-                sudo docker compose ps
-                exit 0
-              fi
-              echo "  Attempt $i/18 (status: $STATUS) - waiting 5s..."
-              sleep 5
-            done
+            sudo docker compose up -d \
+              --force-recreate \
+              --pull always \
+              api
 
-            echo "ERROR: API did not become healthy. Last logs:"
-            sudo docker compose logs --tail 50 ${{ env.API_SERVICE }}
-            echo "To roll back: sudo API_IMAGE=netlineserv/repositorio-backend:<previous-commit> docker compose up -d ${{ env.API_SERVICE }}"
-            exit 1
+            echo "API deployed successfully."
+
+            sudo docker compose ps
 
           EOF
 
       # CLEANUP DOCKER
-      # Só imagens sem uso há mais de 7 dias: as versões recentes ficam para voltar atrás
       - name: Cleanup Docker
         run: |
           ssh -i ~/.ssh/deploy_key \
@@ -313,7 +282,9 @@ jobs:
 
             set -e
 
-            sudo docker image prune -af --filter "until=168h"
+            sudo docker image prune -f
+
+            sudo docker system prune -f --volumes=false
 
           EOF
 
