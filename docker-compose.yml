@@ -1,25 +1,28 @@
 services:
   api:
     build: .
-    # No servidor o pipeline escolhe a versão publicada; localmente o "build" cria-a
-    image: ${API_IMAGE:-netlineserv/repositorio-backend:demo}
+    container_name: repositorio-backend-api
     env_file:
       - .env
-    environment:
-      # Dentro do Docker a base de dados chama-se "db" (o .env aponta para localhost)
-      DATABASE_URL: mysql://${DB_USER}:${DB_PASSWORD}@db:${DB_PORT}/${DB_NAME}
-      NODE_ENV: production
     networks:
-      - repositorionetwork
+      - repositorionet
     ports:
       - ${HOST_PORT}:${PORT}
-    restart: unless-stopped
-    init: true
+    restart: always
+    user: "node"
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      - DATABASE_URL=mysql://${DB_USER}:${DB_PASSWORD}@db:${DB_PORT}/${DB_NAME}
+      - PORT=${PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - NODE_ENV=production
+
     volumes:
       - ./uploads:/usr/src/app/uploads
+      - ./logs:/usr/src/app/logs
+
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:${PORT}/api/v1/health"]
       interval: 30s
@@ -29,6 +32,7 @@ services:
 
   db:
     image: mysql:8
+    container_name: repositorio-backend-db
     command: --mysql-native-password=ON
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
@@ -36,21 +40,19 @@ services:
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
     networks:
-      - repositorionetwork
+      - repositorionet
     volumes:
       - db_data:/var/lib/mysql
-    # Só acessível a partir da própria máquina, nunca da Internet
     ports:
-      - 127.0.0.1:${DB_HOST_PORT}:${DB_PORT}
-    restart: unless-stopped
+      - "127.0.0.1:${DB_HOST_PORT}:${DB_PORT}"
+    restart: always
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s
       timeout: 5s
       retries: 10
-
 networks:
-  repositorionetwork:
+  repositorionet:
     driver: bridge
 
 volumes:
