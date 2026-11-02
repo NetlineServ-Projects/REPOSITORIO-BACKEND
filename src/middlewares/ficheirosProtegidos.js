@@ -36,6 +36,9 @@ async function autorizarFicheiro(req, res, next) {
 
     // O browser não deve guardar cópias partilhadas de um ficheiro protegido
     res.set("Cache-Control", "private, no-store");
+    // ?transferir=1: o browser grava o ficheiro com o nome original em vez de o abrir.
+    // O atributo "download" dos links não chega: o browser ignora-o noutra origem (a API)
+    if (req.query.transferir) res.attachment(documento.nomeArquivo || relativo.split("/").pop());
     next();
   } catch (erro) {
     next(erro);

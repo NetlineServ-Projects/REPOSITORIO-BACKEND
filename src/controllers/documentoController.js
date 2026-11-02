@@ -16,7 +16,8 @@ exports.criarDocumento = async (req, res, next) => {
         const dadosDocumento = {
             titulo: req.body.titulo,
             descricao: req.body.descricao,
-            nomeArquivo: ficheiro.originalname,
+            // O multer lê o nome em Latin-1: sem isto "Transacção.pdf" ficava "TransaccÌ§aÌo.pdf"
+            nomeArquivo: Buffer.from(ficheiro.originalname, "latin1").toString("utf8"),
             caminho: ficheiro.path.replace(/\\/g, "/"),
             tipoArquivo: ficheiro.mimetype,
             tamanho: ficheiro.size,
