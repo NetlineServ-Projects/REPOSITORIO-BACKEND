@@ -1,19 +1,42 @@
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# No Coolify, as variáveis SERVICE_* são geradas e guardadas por ele (palavras-passe, utilizador e
+# domínio). As restantes têm de ser definidas no recurso; as marcadas com :? são obrigatórias.
 services:
   api:
     image: netlineserv/repositorio-backend:${IMAGE_TAG:-demo}
     pull_policy: always
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
     depends_on:
       db:
         condition: service_healthy
-    # Migrações correm sempre antes da API arrancar
-    command: sh -c "./node_modules/.bin/prisma migrate deploy && exec npm run start:prod"
+    # O CMD da imagem (npm run start:prod) aplica as migrações e o seed antes de arrancar a API
     environment:
-      NODE_ENV: production
-      PORT: 3000
-      JWT_SECRET: ${JWT_SECRET:?}
-      # Se a password tiver caracteres especiais (@ : / # ?), tem de estar URL-encoded
-      DATABASE_URL: mysql://${DB_USER:?}:${DB_PASSWORD:?}@db:3306/${DB_NAME:?}
+      - SERVICE_FQDN_API_3000
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=${TZ:-Africa/Maputo}
+      - JWT_SECRET=${SERVICE_PASSWORD_64_JWT}
+      # 64 caracteres hex (openssl rand -hex 32), definida à mão e guardada fora do Coolify:
+      # se mudar ou se perder, as credenciais encriptadas na BD deixam de poder ser lidas
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?}
+      - DATABASE_URL=mysql://${SERVICE_USER_MYSQL}:${SERVICE_PASSWORD_MYSQL}@db:3306/${MYSQL_DATABASE:-repositorio}
+      # Endereço exato do frontend (CORS com credenciais)
+      - FRONTEND_URL=${FRONTEND_URL:?}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      # Administrador criado pelo seed, só se ainda não existir
+      - ADMIN_NOME=${ADMIN_NOME:-Administrador}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_SENHA=${SERVICE_PASSWORD_ADMIN}
+      - ADMIN_NUMERO=${ADMIN_NUMERO:-}
+      - ADMIN_CARGO=${ADMIN_CARGO:-Administrador}
+      - ADMIN_DEPARTAMENTO=${ADMIN_DEPARTAMENTO:-}
     expose:
       - "3000"
     volumes:
@@ -23,32 +46,42 @@ services:
     healthcheck:
       test:
         ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/v1/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *logging
 
   db:
     image: mysql:8.4
     restart: unless-stopped
-    command: --mysql-native-password=ON
+    stop_grace_period: 60s
+    command:
+      - --mysql-native-password=ON
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-allowed-packet=64M
+      # O Prisma lê as datas como UTC: o TZ só muda a hora dos registos, não o NOW() da BD
+      - --default-time-zone=+00:00
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?}
-      MYSQL_DATABASE: ${DB_NAME:?}
-      MYSQL_USER: ${DB_USER:?}
-      MYSQL_PASSWORD: ${DB_PASSWORD:?}
+      - TZ=${TZ:-Africa/Maputo}
+      - MYSQL_ROOT_PASSWORD=${SERVICE_PASSWORD_MYSQLROOT}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-repositorio}
+      - MYSQL_USER=${SERVICE_USER_MYSQL}
+      - MYSQL_PASSWORD=${SERVICE_PASSWORD_MYSQL}
     volumes:
       - repositorio_db_data:/var/lib/mysql
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent",
+          'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent',
         ]
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 30s
+      start_period: 60s
+    logging: *logging
 
 volumes:
   repositorio_db_data:

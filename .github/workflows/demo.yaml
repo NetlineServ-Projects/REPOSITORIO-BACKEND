@@ -17,7 +17,7 @@ env:
   DOCKER_REPO: netlineserv/repositorio-backend
   DOCKER_TAG: demo
   NODE_VERSION: '22'
-  COMPOSE_FILE: docker-compose.yaml
+  COMPOSE_FILE: docker-compose.yml
   HEALTH_PATH: /api/v1/health
 
 jobs:
@@ -40,12 +40,21 @@ jobs:
         with:
           persist-credentials: false
 
+      # Falha já, e não depois do build, se faltarem as credenciais do Docker Hub
+      - name: Check Docker Hub secrets
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          [ -n "$DOCKER_USERNAME" ] || { echo "::error::Secret em falta: DOCKER_USERNAME"; exit 1; }
+          [ -n "$DOCKER_PASSWORD" ] || { echo "::error::Secret em falta: DOCKER_PASSWORD"; exit 1; }
+
       - name: Validate deploy files
         run: |
           test -f "$COMPOSE_FILE" || { echo "::error::$COMPOSE_FILE não encontrado"; exit 1; }
           test -f Dockerfile || { echo "::error::Dockerfile não encontrado"; exit 1; }
           test -f package-lock.json || { echo "::error::package-lock.json não encontrado (o Dockerfile usa npm ci)"; exit 1; }
-          # As variáveis reais estão no Coolify; aqui valida-se apenas a estrutura do compose
+          # As variáveis reais estão no Coolify (as SERVICE_* são geradas por ele); aqui valida-se a estrutura
           docker compose -f "$COMPOSE_FILE" config -q --no-interpolate
 
       - name: Set up Node.js ${{ env.NODE_VERSION }}
@@ -77,6 +86,45 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      # Imagem local para o smoke test; o push a seguir reutiliza a cache
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.DOCKER_REPO }}:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.sha12 }}
+
+      # Arranca a imagem com o compose de deploy e uma BD vazia: confirma migrações,
+      # seed, arranque, healthchecks e versão antes de publicar a imagem
+      - name: Smoke test (docker compose)
+        env:
+          IMAGE_TAG: smoke
+          VERSION: ${{ steps.meta.outputs.sha12 }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/smoke.env" <<EOF
+          SERVICE_PASSWORD_MYSQLROOT=$(openssl rand -hex 16)
+          SERVICE_USER_MYSQL=smoke
+          SERVICE_PASSWORD_MYSQL=$(openssl rand -hex 16)
+          SERVICE_PASSWORD_64_JWT=$(openssl rand -hex 32)
+          SERVICE_PASSWORD_ADMIN=$(openssl rand -hex 16)
+          ENCRYPTION_KEY=$(openssl rand -hex 32)
+          FRONTEND_URL=http://localhost:5173
+          ADMIN_EMAIL=admin@smoke.test
+          EOF
+          compose() { docker compose -f "$COMPOSE_FILE" -p smoke --env-file "$RUNNER_TEMP/smoke.env" "$@"; }
+          trap 'compose logs --no-color --tail 100 api; compose down -v' EXIT
+
+          compose pull db
+          compose up -d --pull never --wait --wait-timeout 300
+          RESP=$(compose exec -T api wget -qO- http://127.0.0.1:3000/api/v1/health)
+          echo "$RESP"
+          [ "$(jq -r '.data.versao' <<<"$RESP")" = "$VERSION" ] || { echo "::error::O health não devolve a versão ${VERSION}"; exit 1; }
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -113,7 +161,7 @@ jobs:
 
   # O Coolify gere o recurso (compose, variáveis, domínio e proxy);
   # o pipeline faz backup da BD, pede o deploy e espera pela versão nova.
-  # As migrações Prisma correm no arranque do contentor api (ver docker-compose.yaml).
+  # As migrações Prisma correm no arranque do contentor api (npm run start:prod).
   deploy:
     name: Deploy to DEMO
     needs: build-and-pack
@@ -161,16 +209,22 @@ jobs:
           set -euo pipefail
           [ -n "$SSH_KEY" ] || { echo "::error::Secret em falta: SERVER_KEY"; exit 1; }
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          # Uma chave guardada com fins de linha Windows (CRLF) é recusada pelo ssh
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null || { echo "::error::SERVER_KEY não é uma chave privada SSH válida (ou tem passphrase)"; exit 1; }
+          ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::O servidor (SERVER_IP) não respondeu na porta 22"; exit 1; }
 
       - name: Backup database
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes "${SSH_USER}@${SSH_HOST}" \
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 "${SSH_USER}@${SSH_HOST}" \
             "APP_UUID='${COOLIFY_UUID}' DB_SERVICE='${DB_SERVICE}' BACKUP_DIR='${BACKUP_DIR}' BACKUP_KEEP='${BACKUP_KEEP}' RELEASE_TAG='${RELEASE_TAG}' bash -s" <<'EOF'
           set -euo pipefail
+
+          # Como root não é preciso (nem sempre existe) sudo
+          sudo() { if [ "$(id -u)" -eq 0 ]; then "$@"; else command sudo "$@"; fi; }
 
           # O Coolify usa o UUID do recurso como projecto compose e nomeia os contentores <serviço>-<uuid>
           CONTAINER=$(sudo docker ps -q \
@@ -198,7 +252,7 @@ jobs:
           fi
 
           cd "$BACKUP_DIR"
-          sudo ls -1t backup_*.sql.gz | tail -n +$((BACKUP_KEEP + 1)) | xargs -r sudo rm --
+          sudo ls -1t backup_*.sql.gz | tail -n +$((BACKUP_KEEP + 1)) | while read -r antigo; do sudo rm -- "$antigo"; done
           echo "Backup OK: $(sudo du -h "$FILE" | cut -f1)"
           EOF
 
@@ -207,9 +261,8 @@ jobs:
       # Falha logo se o Coolify marcar o deploy como falhado/cancelado.
       - name: Deploy to Coolify
         env:
-          HEALTH_URL: ${{ vars.DEMO_HEALTH_URL }}${{ env.HEALTH_PATH }}
           DEPLOY_TIMEOUT: 1200
-        run: .github/scripts/coolify-deploy.sh
+        run: HEALTH_URL="${HEALTH_URL%/}${HEALTH_PATH}" bash .github/scripts/coolify-deploy.sh
 
       - name: Deploy summary
         run: |
