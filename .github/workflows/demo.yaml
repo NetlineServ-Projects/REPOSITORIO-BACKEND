@@ -231,13 +231,19 @@ jobs:
             echo "::error::SERVER_KEY inválida: ${MOTIVO} ($(wc -l < "$K" | tr -d ' ') linhas). Volte a gravá-la com: gh secret set SERVER_KEY < ficheiro_da_chave_privada"
             exit 1
           fi
-          ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          [ -s ~/.ssh/known_hosts ] || { echo "::error::O servidor (SERVER_IP) não respondeu na porta 22"; exit 1; }
+          # Falhas de rede pontuais entre o runner e o servidor acontecem: tenta até 5 vezes
+          for tentativa in 1 2 3 4 5; do
+            ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+            [ -s ~/.ssh/known_hosts ] && break
+            echo "O servidor não respondeu na porta 22 (tentativa ${tentativa}/5); nova tentativa em $((tentativa * 5))s..."
+            sleep $((tentativa * 5))
+          done
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::O servidor (SERVER_IP) não respondeu na porta 22 após 5 tentativas"; exit 1; }
 
       - name: Backup database
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 "${SSH_USER}@${SSH_HOST}" \
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 -o ConnectionAttempts=3 -o ServerAliveInterval=30 "${SSH_USER}@${SSH_HOST}" \
             "APP_UUID='${COOLIFY_UUID}' DB_SERVICE='${DB_SERVICE}' BACKUP_DIR='${BACKUP_DIR}' BACKUP_KEEP='${BACKUP_KEEP}' RELEASE_TAG='${RELEASE_TAG}' bash -s" <<'EOF'
           set -euo pipefail
 
