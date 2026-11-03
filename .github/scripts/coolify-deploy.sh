@@ -15,9 +15,13 @@ set -euo pipefail
 TIMEOUT="${DEPLOY_TIMEOUT:-1200}"
 INTERVALO=10
 
-# Aceita o URL com ou sem barra final ou /api/v1
-API="${COOLIFY_URL%/}"
-API="${API%/api/v1}/api/v1"
+# A API está sempre na raiz do Coolify: fica só com protocolo, máquina e porta, mesmo que o
+# COOLIFY_URL tenha sido copiado do browser com o caminho de uma página (/project/...)
+API="$(sed -E 's#^(https?://[^/]+).*#\1#' <<<"${COOLIFY_URL}")/api/v1"
+case "$API" in
+  http://*|https://*) ;;
+  *) echo "::error::COOLIFY_URL tem de começar por http:// ou https:// (ex: http://IP_DO_SERVIDOR:8000)"; exit 1 ;;
+esac
 
 coolify() {
   curl -fsS --retry 3 --retry-delay 5 --max-time 30 \
@@ -27,8 +31,29 @@ coolify() {
 }
 
 echo "A pedir o deploy ao Coolify..."
-if ! RESPOSTA=$(coolify "/deploy?uuid=${COOLIFY_UUID}&force=false"); then
-  echo "::error::O Coolify recusou o pedido de deploy (verifique COOLIFY_URL, COOLIFY_API_TOKEN e COOLIFY_RESOURCE_UUID)"
+CORPO=$(mktemp)
+CODIGO=$(curl -sS --retry 3 --retry-delay 5 --max-time 30 -o "$CORPO" -w '%{http_code}' \
+  -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+  -H "Accept: application/json" \
+  "${API}/deploy?uuid=${COOLIFY_UUID}&force=false") || CODIGO=000
+RESPOSTA=$(cat "$CORPO"); rm -f "$CORPO"
+
+if [ "$CODIGO" != "200" ]; then
+  # A mensagem do Coolify ajuda a distinguir as causas (nunca contém o token)
+  MENSAGEM=$(jq -r '.message // empty' <<<"$RESPOSTA" 2>/dev/null || true)
+  case "$CODIGO" in
+    000) MOTIVO="sem ligação ao Coolify: confirme o endereço e a porta em COOLIFY_URL" ;;
+    401) MOTIVO="token inválido ou expirado: crie outro em Keys & Tokens → API Tokens e grave-o em COOLIFY_API_TOKEN" ;;
+    403) MOTIVO="sem permissão: ative a API em Settings → Advanced e dê ao token a permissão deploy" ;;
+    # Rota inexistente: o Laravel responde "The route ... could not be found" ou uma página HTML
+    404) if [ -n "$MENSAGEM" ] && ! grep -qi 'route' <<<"$MENSAGEM"; then
+           MOTIVO="o Coolify não encontrou o recurso: COOLIFY_RESOURCE_UUID tem de ser o UUID da aplicação (não do projecto nem do ambiente)"
+         else
+           MOTIVO="endereço da API não encontrado: COOLIFY_URL deve ser só o endereço do painel do Coolify (ex: http://IP_DO_SERVIDOR:8000)"
+         fi ;;
+    *) MOTIVO="resposta HTTP ${CODIGO}" ;;
+  esac
+  echo "::error::O Coolify recusou o pedido de deploy: ${MOTIVO}${MENSAGEM:+ (Coolify: ${MENSAGEM})}"
   exit 1
 fi
 
