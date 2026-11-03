@@ -67,21 +67,30 @@ if [ "$CODIGO" != "200" ]; then
   exit 1
 fi
 
-DEPLOYMENT=$(jq -r '.deployments[0].deployment_uuid // empty' <<<"$RESPOSTA")
-if [ -z "$DEPLOYMENT" ]; then
+# Uma Application devolve deployment_uuid e o estado do deploy pode ser acompanhado;
+# um Service só devolve uma mensagem ("Service ... started"): aí conta apenas o health
+DEPLOYMENT=$(jq -r '.deployments[0].deployment_uuid // empty' <<<"$RESPOSTA" 2>/dev/null || true)
+MENSAGEM=$(jq -r '.deployments[0].message // empty' <<<"$RESPOSTA" 2>/dev/null || true)
+if [ -n "$DEPLOYMENT" ]; then
+  echo "Deploy ${DEPLOYMENT} em fila."
+  ESTADO=""
+elif [ -n "$MENSAGEM" ]; then
+  echo "Coolify: ${MENSAGEM}"
+  ESTADO="finished"
+else
   echo "::error::Resposta inesperada do Coolify: ${RESPOSTA}"
   exit 1
 fi
-echo "Deploy ${DEPLOYMENT} em fila."
 
 FIM=$((SECONDS + TIMEOUT))
-ESTADO=""
 while [ "$SECONDS" -lt "$FIM" ]; do
-  # Uma falha de rede pontual não interrompe a espera
-  NOVO=$(coolify "/deployments/${DEPLOYMENT}" 2>/dev/null | jq -r '.status // empty' 2>/dev/null) || NOVO="$ESTADO"
-  if [ -n "$NOVO" ] && [ "$NOVO" != "$ESTADO" ]; then
-    ESTADO="$NOVO"
-    echo "Coolify: ${ESTADO}"
+  if [ -n "$DEPLOYMENT" ]; then
+    # Uma falha de rede pontual não interrompe a espera
+    NOVO=$(coolify "/deployments/${DEPLOYMENT}" 2>/dev/null | jq -r '.status // empty' 2>/dev/null) || NOVO="$ESTADO"
+    if [ -n "$NOVO" ] && [ "$NOVO" != "$ESTADO" ]; then
+      ESTADO="$NOVO"
+      echo "Coolify: ${ESTADO}"
+    fi
   fi
 
   case "$ESTADO" in
