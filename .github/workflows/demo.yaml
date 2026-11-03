@@ -36,7 +36,7 @@ jobs:
       DATABASE_URL: mysql://build:build@localhost:3306/build
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -58,7 +58,7 @@ jobs:
           docker compose -f "$COMPOSE_FILE" config -q --no-interpolate
 
       - name: Set up Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -187,7 +187,7 @@ jobs:
       BACKUP_KEEP: 10
     steps:
       - name: Checkout deploy scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
           sparse-checkout: .github/scripts
@@ -216,7 +216,21 @@ jobs:
           # Uma chave guardada com fins de linha Windows (CRLF) é recusada pelo ssh
           printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null || { echo "::error::SERVER_KEY não é uma chave privada SSH válida (ou tem passphrase)"; exit 1; }
+          # -P "": nunca fica à espera de uma passphrase
+          if ! ERRO_CHAVE=$(ssh-keygen -y -P "" -f ~/.ssh/deploy_key 2>&1 >/dev/null); then
+            # Diagnóstico sem mostrar a chave: só o tipo de conteúdo e o número de linhas
+            K=~/.ssh/deploy_key
+            if grep -qi 'passphrase' <<<"$ERRO_CHAVE" || grep -q 'ENCRYPTED' "$K"; then MOTIVO="tem passphrase; o deploy precisa de uma chave sem passphrase"
+            elif grep -q '^PuTTY-User-Key-File' "$K"; then MOTIVO="está no formato PuTTY (.ppk); converta com: puttygen chave.ppk -O private-openssh -o chave"
+            elif grep -qE '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)' "$K"; then MOTIVO="é uma chave PÚBLICA (.pub); use o ficheiro da chave privada"
+            elif ! grep -qE '^-----BEGIN [A-Z ]*PRIVATE KEY-----$' "$K"; then MOTIVO="não tem a linha -----BEGIN ... PRIVATE KEY----- sozinha numa linha"
+            elif ! grep -qE '^-----END [A-Z ]*PRIVATE KEY-----$' "$K"; then MOTIVO="não tem a linha -----END ... PRIVATE KEY----- (chave incompleta)"
+            elif [ "$(wc -l < "$K")" -lt 3 ]; then MOTIVO="perdeu as quebras de linha (está toda numa linha)"
+            else MOTIVO="tem o conteúdo corrompido ou cortado"
+            fi
+            echo "::error::SERVER_KEY inválida: ${MOTIVO} ($(wc -l < "$K" | tr -d ' ') linhas). Volte a gravá-la com: gh secret set SERVER_KEY < ficheiro_da_chave_privada"
+            exit 1
+          fi
           ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           [ -s ~/.ssh/known_hosts ] || { echo "::error::O servidor (SERVER_IP) não respondeu na porta 22"; exit 1; }
 
