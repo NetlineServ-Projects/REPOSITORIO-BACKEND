@@ -101,4 +101,4 @@ function hashIp(ip) {
   return crypto.createHmac("sha256", subchave).update(normalizado).digest("hex");
 }
 
-module.exports = { encriptar, desencriptar, hashIp };
+module.exports = { encriptar, desencriptar, hashIp, obterChave };

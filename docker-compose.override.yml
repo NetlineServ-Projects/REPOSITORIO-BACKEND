@@ -1,0 +1,14 @@
+# Só para desenvolvimento local: o "docker compose" carrega este ficheiro sozinho quando
+# não se passa -f. O Coolify e o pipeline usam "-f docker-compose.yml" e ignoram-no.
+services:
+  api:
+    image: repositorio-backend:local
+    build: .
+    pull_policy: build
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+
+  db:
+    # Só acessível a partir da própria máquina
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-3307}:3306"
