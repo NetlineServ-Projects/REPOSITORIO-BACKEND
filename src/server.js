@@ -1,16 +1,19 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const path = require("path");
 const fs = require("fs");
 const prisma = require("./config/prisma");
-require("dotenv").config();
 
 const { validarEnvVars } = require("./utils/fileHelper");
+const { obterChave } = require("./utils/crypto");
 
 // Falha rápido se alguma variável de ambiente crítica estiver em falta.
 // Melhor detectar no arranque do que quando a primeira chamada chegar.
 validarEnvVars(["DATABASE_URL", "JWT_SECRET", "ENCRYPTION_KEY"]);
+// A ENCRYPTION_KEY também tem de ter o formato certo (64 caracteres hex)
+obterChave();
 
 const languageMiddleware = require("./middlewares/i18n");
 

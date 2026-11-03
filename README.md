@@ -17,11 +17,12 @@ cp .env.example .env    # preencha as palavras-passe e os segredos
 docker compose up -d --build
 ```
 
+- Sem `-f`, o Docker Compose junta o `docker-compose.yml` (o mesmo do deploy) com o `docker-compose.override.yml`, que constrói a imagem localmente e abre as portas.
 - A API fica em `http://localhost:3000` (porta `HOST_PORT`).
 - O MySQL fica em `localhost:3307` (porta `DB_HOST_PORT`), acessível só a partir da própria máquina.
 - No arranque, a API aplica as migrações e cria o administrador definido no `.env`, se ainda não existir.
 
-Para ver os registos: `docker compose logs -f api`. Para parar: `docker compose down` (os dados ficam no volume `db_data`).
+Para ver os registos: `docker compose logs -f api`. Para parar: `docker compose down` (os dados ficam nos volumes `repositorio_db_data` e `repositorio_uploads`).
 
 ## Começar sem Docker
 
@@ -39,12 +40,15 @@ npm start               # http://localhost:3000
 
 | Variável | Para que serve |
 |---|---|
-| `DB_ROOT_PASSWORD`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Base de dados MySQL (criada pelo Docker) |
-| `PORT` / `HOST_PORT` | Porta da API dentro do contentor / na máquina |
-| `DB_PORT` / `DB_HOST_PORT` | Porta do MySQL dentro do contentor / na máquina |
+| `SERVICE_PASSWORD_MYSQLROOT`, `SERVICE_USER_MYSQL`, `SERVICE_PASSWORD_MYSQL`, `MYSQL_DATABASE` | Base de dados MySQL (criada pelo Docker). No Coolify as `SERVICE_*` são geradas por ele |
+| `SERVICE_PASSWORD_64_JWT` | Segredo das sessões no Docker (`JWT_SECRET` dentro do contentor) |
+| `SERVICE_PASSWORD_ADMIN` | Palavra-passe do administrador no Docker (`ADMIN_SENHA` dentro do contentor) |
+| `TZ` | Fuso horário da API e dos registos (`Africa/Maputo` por defeito). A BD trabalha sempre em UTC |
+| `PORT` | Porta da API fora do Docker (no contentor é sempre 3000) |
+| `HOST_PORT` / `DB_HOST_PORT` | Portas da API e do MySQL na máquina local (só com o `docker-compose.override.yml`) |
 | `DATABASE_URL` | Só fora do Docker (o `docker-compose.yml` define-a sozinho) |
-| `JWT_SECRET` | Segredo para assinar as sessões. Use um valor longo e aleatório |
-| `ENCRYPTION_KEY` | Chave para encriptar credenciais, tokens e IPs. **Não a mude** depois de haver dados: os valores encriptados deixam de poder ser lidos |
+| `JWT_SECRET` | Só fora do Docker: segredo para assinar as sessões. Use um valor longo e aleatório |
+| `ENCRYPTION_KEY` | Chave para encriptar credenciais, tokens e IPs: 64 caracteres hex (`openssl rand -hex 32`); a API não arranca com outro formato. **Não a mude** depois de haver dados: os valores encriptados deixam de poder ser lidos |
 | `FRONTEND_URL` | Endereço exato do frontend (CORS com credenciais) |
 | `COOKIE_SECURE` | `true` por defeito. `false` só num servidor de testes sem HTTPS |
 | `ADMIN_NOME`, `ADMIN_EMAIL`, `ADMIN_SENHA`, ... | Administrador criado no primeiro arranque |
@@ -92,5 +96,20 @@ Todas as respostas seguem o formato `{ sucesso, mensagem, data }`. Para confirma
 
 - A API e o frontend têm de estar no **mesmo site** e em **HTTPS**.
 - Faça cópias de segurança da base de dados **e** da pasta `uploads/`: os documentos só existem lá.
-- No servidor, a pasta `uploads/` tem de pertencer ao utilizador do contentor (`chown -R 1000:1000 uploads`).
-- O pipeline de deploy (`.github/workflows/demo.yaml`) é mantido pela equipa de DevOps.
+- Os ficheiros enviados ficam no volume `repositorio_uploads`, que já pertence ao utilizador do contentor (`node`, uid 1000).
+- `GET /api/v1/health` devolve a versão da imagem (`data.versao`) e responde 503 se a base de dados estiver em baixo.
+
+## Deploy (DEMO)
+
+O pipeline (`.github/workflows/demo.yaml`) corre em cada push para o ramo `demo`:
+
+1. Instala as dependências, gera e valida o Prisma, corre os testes.
+2. Constrói a imagem e faz um smoke test com o `docker-compose.yml` e uma BD vazia (migrações, seed, healthchecks e versão).
+3. Publica `netlineserv/repositorio-backend:demo` e `:demo-<commit>` (para rollback) no Docker Hub.
+4. Faz backup da BD no servidor por SSH, pede o deploy ao Coolify (`.github/scripts/coolify-deploy.sh`) e espera até o health público mostrar a versão nova.
+
+Configuração necessária:
+
+- **GitHub → Secrets:** `DOCKER_USERNAME`, `DOCKER_PASSWORD`, `COOLIFY_URL`, `COOLIFY_API_TOKEN`, `COOLIFY_RESOURCE_UUID`, `SERVER_IP`, `SERVER_USERNAME`, `SERVER_KEY`.
+- **GitHub → Variables:** `DEMO_HEALTH_URL`, o endereço público da API (ex: `https://api.exemplo.com`, sem `/api/v1/health`).
+- **Coolify:** o recurso usa o `docker-compose.yml` deste repositório. O Coolify gera as `SERVICE_*` (palavras-passe, utilizador da BD e domínio da API, `SERVICE_FQDN_API`); à mão definem-se `ENCRYPTION_KEY` (guarde uma cópia fora do Coolify), `FRONTEND_URL` e `ADMIN_EMAIL`. A palavra-passe do administrador fica em `SERVICE_PASSWORD_ADMIN`.
