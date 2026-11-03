@@ -30,13 +30,23 @@ coolify() {
     "${API}$1"
 }
 
+pedir_deploy() {
+  local corpo codigo
+  corpo=$(mktemp)
+  codigo=$(curl -sS --retry 3 --retry-delay 5 --max-time 30 -o "$corpo" -w '%{http_code}' -X "$1" \
+    -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    --data "{\"uuid\":\"${COOLIFY_UUID}\",\"force\":false}" \
+    "${API}/deploy?uuid=${COOLIFY_UUID}&force=false") || codigo=000
+  RESPOSTA=$(cat "$corpo"); rm -f "$corpo"
+  CODIGO="$codigo"
+}
+
 echo "A pedir o deploy ao Coolify..."
-CORPO=$(mktemp)
-CODIGO=$(curl -sS --retry 3 --retry-delay 5 --max-time 30 -o "$CORPO" -w '%{http_code}' \
-  -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-  -H "Accept: application/json" \
-  "${API}/deploy?uuid=${COOLIFY_UUID}&force=false") || CODIGO=000
-RESPOSTA=$(cat "$CORPO"); rm -f "$CORPO"
+# O Coolify 4.5+ só aceita POST; as versões anteriores só aceitavam GET (respondem 405 ao POST)
+pedir_deploy POST
+[ "$CODIGO" = "405" ] && pedir_deploy GET
 
 if [ "$CODIGO" != "200" ]; then
   # A mensagem do Coolify ajuda a distinguir as causas (nunca contém o token)
