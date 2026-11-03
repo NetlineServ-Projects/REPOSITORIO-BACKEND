@@ -65,6 +65,24 @@ app.get("/", (req, res) => {
     });
 });
 
+// Documentação da API (Swagger UI) em /api/v1/docs e a especificação em /api/v1/docs.json.
+// Só descreve as rotas: as protegidas continuam a exigir sessão. API_DOCS=false desliga-a.
+if (process.env.API_DOCS !== "false") {
+    const swaggerUi = require("swagger-ui-express");
+    const { gerarEspecificacao } = require("./docs/openapi");
+    const especificacao = gerarEspecificacao();
+
+    app.get("/api/v1/docs.json", (req, res) => res.json(especificacao));
+    app.use(
+        "/api/v1/docs",
+        swaggerUi.serve,
+        swaggerUi.setup(especificacao, {
+            customSiteTitle: "API do Repositório Netline",
+            swaggerOptions: { persistAuthorization: true, withCredentials: true },
+        })
+    );
+}
+
 // Rotas da API v1
 app.use("/api/v1", routesV1);
 

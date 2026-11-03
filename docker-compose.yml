@@ -30,6 +30,8 @@ services:
       # Endereço exato do frontend (CORS com credenciais)
       - FRONTEND_URL=${FRONTEND_URL:?}
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      # Documentação Swagger em /api/v1/docs ("false" desliga-a)
+      - API_DOCS=${API_DOCS:-true}
       # Administrador criado pelo seed, só se ainda não existir
       - ADMIN_NOME=${ADMIN_NOME:-Administrador}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}

@@ -51,6 +51,7 @@ npm start               # http://localhost:3000
 | `ENCRYPTION_KEY` | Chave para encriptar credenciais, tokens e IPs: 64 caracteres hex (`openssl rand -hex 32`); a API não arranca com outro formato. **Não a mude** depois de haver dados: os valores encriptados deixam de poder ser lidos |
 | `FRONTEND_URL` | Endereço exato do frontend (CORS com credenciais) |
 | `COOKIE_SECURE` | `true` por defeito. `false` só num servidor de testes sem HTTPS |
+| `API_DOCS` | `true` por defeito: serve a documentação em `/api/v1/docs`. `false` desliga-a |
 | `ADMIN_NOME`, `ADMIN_EMAIL`, `ADMIN_SENHA`, ... | Administrador criado no primeiro arranque |
 
 O `.env` não vai para o Git. Use o `.env.example` como base.
@@ -74,6 +75,7 @@ src/
 ├── services/      Regras de negócio e acesso à base de dados (Prisma)
 ├── validators/    Esquemas Zod dos pedidos
 ├── middlewares/   Autenticação, permissões, reautenticação, ficheiros protegidos, erros
+├── docs/          Documentação OpenAPI (Swagger) da API
 ├── locales/       Mensagens da API em português (pt.js) e inglês (en.js)
 └── server.js      Arranque do Express
 prisma/
@@ -84,6 +86,13 @@ uploads/           Ficheiros enviados (fora do Git)
 ```
 
 Todas as respostas seguem o formato `{ sucesso, mensagem, data }`. Para confirmar que a API está no ar: `GET /api/v1/health`.
+
+## Documentação da API
+
+- **Swagger UI:** `/api/v1/docs` (ex: `http://localhost:3000/api/v1/docs`). Lista todas as rotas e permite testá-las: faça `POST /auth/login` com **Try it out** e o browser passa a enviar a sessão nos pedidos seguintes.
+- **Especificação OpenAPI 3.1:** `/api/v1/docs.json`, para importar no Postman ou noutras ferramentas.
+
+A especificação está em `src/docs/openapi.js`. Os corpos dos pedidos são gerados a partir dos schemas Zod dos validators, por isso acompanham as validações. Ao criar ou alterar uma rota, registe-a também nesse ficheiro.
 
 ## Segurança
 
