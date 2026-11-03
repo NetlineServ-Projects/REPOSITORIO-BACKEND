@@ -55,12 +55,12 @@ const ACESSO = {
   admin: { security: SESSAO, nota: "**Acesso:** só `ADMIN`.", erros: [401, 403] },
   reautenticacao: {
     security: SESSAO_ELEVADA,
-    nota: "**Acesso:** qualquer utilizador com sessão **e** reautenticação recente (cabeçalho `X-Token-Elevado`, ver `POST /auth/reautenticar`).",
+    nota: "**Acesso:** qualquer utilizador com sessão **e** reautenticação recente (cabeçalho `X-Token-Elevado`, ver `POST /api/v1/auth/reautenticar`).",
     erros: [401],
   },
   adminReautenticacao: {
     security: SESSAO_ELEVADA,
-    nota: "**Acesso:** só `ADMIN`, **com** reautenticação recente (cabeçalho `X-Token-Elevado`, ver `POST /auth/reautenticar`).",
+    nota: "**Acesso:** só `ADMIN`, **com** reautenticação recente (cabeçalho `X-Token-Elevado`, ver `POST /api/v1/auth/reautenticar`).",
     erros: [401, 403],
   },
 };
@@ -74,9 +74,12 @@ const PARAMETROS_CAMINHO = {
   ambiente: { type: "string", enum: infraValidator.AMBIENTES },
 };
 
-// "/sistemas/:sistemaId/infraestruturas" → "/sistemas/{sistemaId}/infraestruturas"
+// Todas as rotas estão montadas em /api/v1 (ver server.js)
+const PREFIXO = "/api/v1";
+
+// "/sistemas/:sistemaId/infraestruturas" → "/api/v1/sistemas/{sistemaId}/infraestruturas"
 function caminhoOpenApi(caminho) {
-  return caminho.replace(/:([a-zA-Z]+)/g, "{$1}");
+  return PREFIXO + caminho.replace(/:([a-zA-Z]+)/g, "{$1}");
 }
 
 // ("patch", "/notificacoes/:id/lida") → "patchNotificacoesIdLida"
@@ -152,7 +155,7 @@ const paths = {};
  * Regista uma rota na especificação.
  *
  * @param {string} metodo  - get, post, put, patch ou delete.
- * @param {string} caminho - Caminho Express, relativo a /api/v1 (ex: "/dominios/:id").
+ * @param {string} caminho - Caminho Express, sem o prefixo /api/v1 (ex: "/dominios/:id").
  * @param {object} opcoes  - tag, resumo, descricao, acesso (chave de ACESSO), corpo,
  *                           query, status (sucesso) e erros (códigos adicionais).
  */
@@ -446,8 +449,8 @@ crud("/imagens", {
 const DESCRICAO = `API do Repositório Digital da Netline: documentos e aprovações, sistemas e a sua infraestrutura, plataformas, servidores, domínios, utilizadores e notificações.
 
 ## Como testar aqui
-1. Abra **Autenticação → POST /auth/login**, clique em **Try it out** e inicie sessão. O browser guarda o cookie da sessão e envia-o sozinho nos pedidos seguintes.
-2. Para os dados sensíveis (credenciais, passwords, tokens), faça **POST /auth/reautenticar** e cole o \`data.tokenElevado\` em **Authorize → tokenElevado**. É válido 3 minutos.
+1. Abra **Autenticação → POST /api/v1/auth/login**, clique em **Try it out** e inicie sessão. O browser guarda o cookie da sessão e envia-o sozinho nos pedidos seguintes.
+2. Para os dados sensíveis (credenciais, passwords, tokens), faça **POST /api/v1/auth/reautenticar** e cole o \`data.tokenElevado\` em **Authorize → tokenElevado**. É válido 3 minutos.
 
 Fora do browser (Postman, scripts), envie o token no cabeçalho \`Authorization: Bearer <token>\`.
 
@@ -462,7 +465,7 @@ function gerarEspecificacao() {
       version: process.env.APP_VERSION || "dev",
       description: DESCRICAO,
     },
-    servers: [{ url: "/api/v1" }],
+    servers: [{ url: "/" }],
     tags: [
       { name: "Sistema", description: "Estado e versão da API." },
       { name: "Autenticação", description: "Sessão, palavra-passe e reautenticação para dados sensíveis." },
@@ -485,14 +488,14 @@ function gerarEspecificacao() {
           type: "apiKey",
           in: "cookie",
           name: "netline_sessao",
-          description: "Definido por POST /auth/login. No browser é enviado automaticamente.",
+          description: "Definido por POST /api/v1/auth/login. No browser é enviado automaticamente.",
         },
         bearer: { type: "http", scheme: "bearer", bearerFormat: "JWT", description: "O mesmo token da sessão, para o Postman ou scripts." },
         tokenElevado: {
           type: "apiKey",
           in: "header",
           name: "X-Token-Elevado",
-          description: "Devolvido por POST /auth/reautenticar. Válido 3 minutos.",
+          description: "Devolvido por POST /api/v1/auth/reautenticar. Válido 3 minutos.",
         },
       },
       schemas: {
