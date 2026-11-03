@@ -111,5 +111,5 @@ O pipeline (`.github/workflows/demo.yaml`) corre em cada push para o ramo `demo`
 Configuração necessária:
 
 - **GitHub → Secrets:** `DOCKER_USERNAME`, `DOCKER_PASSWORD`, `COOLIFY_URL`, `COOLIFY_API_TOKEN`, `COOLIFY_RESOURCE_UUID`, `SERVER_IP`, `SERVER_USERNAME`, `SERVER_KEY`.
-- **GitHub → Variables:** `DEMO_HEALTH_URL`, o endereço público da API (ex: `https://api.exemplo.com`, sem `/api/v1/health`).
+- **GitHub → Variables (ou Secrets):** `DEMO_HEALTH_URL`, o endereço público da API (ex: `https://api.exemplo.com`, sem `/api/v1/health`).
 - **Coolify:** o recurso usa o `docker-compose.yml` deste repositório. O Coolify gera as `SERVICE_*` (palavras-passe, utilizador da BD e domínio da API, `SERVICE_FQDN_API`); à mão definem-se `ENCRYPTION_KEY` (guarde uma cópia fora do Coolify), `FRONTEND_URL` e `ADMIN_EMAIL`. A palavra-passe do administrador fica em `SERVICE_PASSWORD_ADMIN`.
