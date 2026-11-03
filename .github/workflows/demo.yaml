@@ -176,9 +176,9 @@ jobs:
       ENVIRONMENT: demo
       RELEASE_TAG: ${{ needs.build-and-pack.outputs.release-tag }}
       VERSION: ${{ needs.build-and-pack.outputs.version }}
-      # Endereço público da API (Settings → Variables): o deploy só passa quando ela responde com VERSION
-      HEALTH_URL: ${{ vars.DEMO_HEALTH_URL }}
-      HEALTH_VAR: DEMO_HEALTH_URL
+      # Endereço público da API (Variable ou Secret DEMO_HEALTH_URL, sem /api/v1/health):
+      # o deploy só passa quando ela responde com VERSION
+      HEALTH_URL: ${{ vars.DEMO_HEALTH_URL || secrets.DEMO_HEALTH_URL }}
       # Backup MySQL por SSH antes do deploy (as migrações alteram a BD)
       SSH_HOST: ${{ secrets.SERVER_IP }}
       SSH_USER: ${{ secrets.SERVER_USERNAME }}
@@ -200,7 +200,11 @@ jobs:
                       SSH_HOST:SERVER_IP SSH_USER:SERVER_USERNAME; do
             v=${pair%%:*}; [ -n "${!v}" ] || { echo "::error::Secret em falta: ${pair#*:}"; exit 1; }
           done
-          [ -n "$HEALTH_URL" ] || { echo "::error::Defina a variável ${HEALTH_VAR} (Settings → Variables) com o endereço público da API"; exit 1; }
+          [ -n "$HEALTH_URL" ] || { echo "::error::Defina DEMO_HEALTH_URL (Settings → Variables) com o endereço público da API"; exit 1; }
+          case "$HEALTH_URL" in
+            http://*|https://*) ;;
+            *) echo "::error::DEMO_HEALTH_URL tem de começar por https:// (ex: https://api.exemplo.com)"; exit 1 ;;
+          esac
 
       - name: Setup SSH
         env:
