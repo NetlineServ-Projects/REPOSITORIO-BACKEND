@@ -3,18 +3,19 @@ const router = express.Router();
 
 const usuarioController = require("../../controllers/usuarioController");
 const authMiddleware = require("../../middlewares/authMiddleware");
-const authorize = require("../../middlewares/roleMiddleware");
+const { exigirPermissao } = require("../../middlewares/roleMiddleware");
 const validate = require("../../validators/validate");
 const uploadFotografia = require("../../middlewares/uploadFotografia"); // novo
 
 const { createUserSchema, updateUserSchema } = require("../../validators/usuarioValidator");
-const ROLES = require("../../constants/roles");
+const { PERMISSOES } = require("../../constants/permissoes");
 
-// Apenas administradores podem criar utilizadores
+// Gerir contas: quem tem utilizadores.gerir. Contas de administrador e o perfil
+// Administrador só um administrador as mexe (verificado no service)
 router.post(
     "/",
     authMiddleware,
-    authorize(ROLES.ADMIN),
+    exigirPermissao(PERMISSOES.UTILIZADORES_GERIR),
     validate(createUserSchema),
     usuarioController.criarUsuario
 );
@@ -30,12 +31,12 @@ router.patch(
     usuarioController.atualizarFotografia
 );
 
-router.get("/", authMiddleware, authorize(ROLES.ADMIN), usuarioController.listarUsuarios);
+router.get("/", authMiddleware, exigirPermissao(PERMISSOES.UTILIZADORES_GERIR), usuarioController.listarUsuarios);
 
-router.get("/:id", authMiddleware, authorize(ROLES.ADMIN), usuarioController.buscarUsuarioPorId);
+router.get("/:id", authMiddleware, exigirPermissao(PERMISSOES.UTILIZADORES_GERIR), usuarioController.buscarUsuarioPorId);
 
-router.patch("/:id", authMiddleware, authorize(ROLES.ADMIN), validate(updateUserSchema), usuarioController.atualizarUsuario);
+router.patch("/:id", authMiddleware, exigirPermissao(PERMISSOES.UTILIZADORES_GERIR), validate(updateUserSchema), usuarioController.atualizarUsuario);
 
-router.delete("/:id", authMiddleware, authorize(ROLES.ADMIN), usuarioController.eliminarUsuario);
+router.delete("/:id", authMiddleware, exigirPermissao(PERMISSOES.UTILIZADORES_GERIR), usuarioController.eliminarUsuario);
 
 module.exports = router;

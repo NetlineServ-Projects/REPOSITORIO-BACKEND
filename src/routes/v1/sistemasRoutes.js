@@ -3,7 +3,9 @@ const router = Router();
 
 const sistemaController = require("../../controllers/sistemasController");
 const authMiddleware = require("../../middlewares/authMiddleware");
+const { exigirPermissao } = require("../../middlewares/roleMiddleware");
 const validate = require("../../validators/validate");
+const { PERMISSOES } = require("../../constants/permissoes");
 
 const { createSistemaSchema } = require("../../validators/sistemaValidator");
 const { updateSistemaSchema } = require("../../validators/sistemaValidator");
@@ -17,6 +19,7 @@ router.get("/:id", authMiddleware, sistemaController.obterPorId);
 router.post(
   "/",
   authMiddleware,
+  exigirPermissao(PERMISSOES.SISTEMAS_CRIAR),
   validate(createSistemaSchema),
   sistemaController.criar
 );
@@ -28,7 +31,7 @@ router.patch(
   sistemaController.atualizar
 );
 
-// Editar e eliminar: só quem criou o sistema ou um ADMIN (verificado no service)
+// Editar e eliminar: quem criou o sistema, ou quem gere todos os sistemas (verificado no service)
 router.delete(
   "/:id",
   authMiddleware,

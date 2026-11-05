@@ -10,7 +10,8 @@ const {
     gravarSubdominiosDoSistema,
 } = require("./subdominioService");
 
-const ROLES = require("../constants/roles");
+const { PERMISSOES, temPermissao } = require("../constants/permissoes");
+const { filtroVisibilidade } = require("./documentoService");
 
 // O frontend, como o backend, só pode estar alojado numa plataforma Cloud (ex: Vercel)
 const TIPO_PLATAFORMA_CLOUD = "CLOUD_BASE_DADOS";
@@ -194,15 +195,21 @@ function montarUrlsAmbientes(subdominios, urlProducao, urlTestes) {
     }).filter(Boolean);
 }
 
+// Campos dos subdomínios que são infraestrutura (destino DNS, servidor): só para quem a vê
+function semDadosDeInfraestrutura({ tipoDns, destino, servidorId, ...subdominio }) {
+    return subdominio;
+}
+
 /**
  * Formata um sistema: adiciona o nome completo dos subdomínios, os endereços
  * calculados e (nas listas) o totalDocumentos, e remove _count.
  */
-function formatar(sistema) {
+function formatar(sistema, usuarioAtual) {
     const { _count, subdominios = [], ...resto } = sistema;
+    const verInfraestrutura = temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_INFRA_VER);
 
     const subdominiosComNome = subdominios.map((s) => ({
-        ...s,
+        ...(verInfraestrutura ? s : semDadosDeInfraestrutura(s)),
         nomeCompleto: montarNomeCompleto(s.nome, s.dominio.nome),
     }));
 
@@ -221,44 +228,63 @@ function resolverUsuarioId(usuarioAtual) {
 }
 
 /**
- * Só quem criou o sistema o pode editar ou eliminar. Um ADMIN pode sempre,
- * para gerir os sistemas sem criador (antigos, ou de utilizadores eliminados).
+ * Quem criou o sistema (e ainda pode criar sistemas) edita-o e elimina-o. Quem tem
+ * sistemas.gerir pode sempre, também os sistemas sem criador (antigos, ou de utilizadores eliminados).
  */
 function garantirPodeGerir(sistema, usuarioAtual) {
-    if (usuarioAtual?.perfil === ROLES.ADMIN) return;
-    if (sistema.criadoPorId !== null && sistema.criadoPorId === usuarioAtual?.id) return;
+    if (temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_GERIR)) return;
+    const ehCriador = sistema.criadoPorId !== null && sistema.criadoPorId === usuarioAtual?.id;
+    if (ehCriador && temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_CRIAR)) return;
     throw new AppError(MSG.SISTEMA.SEM_PERMISSAO, HTTP_STATUS.FORBIDDEN);
+}
+
+/**
+ * O alojamento do frontend e os subdomínios (domínio, servidor, destino DNS) são infraestrutura:
+ * quem não a gere pode criar e editar o sistema, mas estes campos são ignorados.
+ */
+function semCamposDeInfraestrutura(dados, usuarioAtual) {
+    if (temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_INFRA_GERIR)) return dados;
+    const { plataformaFrontendId, subdominios, ...resto } = dados;
+    return resto;
 }
 
 // ─── FUNÇÕES PÚBLICAS (exports funcionais, padrão do projecto) ──────────────
 
-async function listarTodos() {
+async function listarTodos(usuarioAtual) {
     const sistemas = await prisma.sistema.findMany({
         select: SELECT_SISTEMA_LISTA,
         orderBy: { dataCriacao: "desc" },
     });
 
-    return sistemas.map(formatar);
+    return sistemas.map((s) => formatar(s, usuarioAtual));
 }
 
-async function obterPorId(id) {
+async function obterPorId(id, usuarioAtual) {
     const idNum = parseId(id, MSG.VALIDATION.INVALID_ID);
 
+    // Os documentos do sistema seguem as mesmas regras de visibilidade da lista de documentos
     const sistema = await prisma.sistema.findUnique({
         where: { id: idNum },
-        select: SELECT_SISTEMA_DETALHE,
+        select: {
+            ...SELECT_SISTEMA_DETALHE,
+            documentos: {
+                ...SELECT_SISTEMA_DETALHE.documentos,
+                where: { ...SELECT_SISTEMA_DETALHE.documentos.where, ...filtroVisibilidade(usuarioAtual) },
+            },
+        },
     });
 
     if (!sistema) {
         throw new AppError(MSG.SISTEMA.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
     }
 
-    return formatar(sistema);
+    return formatar(sistema, usuarioAtual);
 }
 
 // usuarioAtual precisa de { id } (vem de req.user no controller)
-async function criar(dados, usuarioAtual) {
+async function criar(dadosRecebidos, usuarioAtual) {
     const usuarioId = resolverUsuarioId(usuarioAtual);
+    const dados = semCamposDeInfraestrutura(dadosRecebidos, usuarioAtual);
 
     await garantirPlataformaDoFrontend(dados.plataformaFrontendId);
     const subdominios = await prepararSubdominiosDoSistema(null, dados.subdominios);
@@ -285,13 +311,14 @@ async function criar(dados, usuarioAtual) {
             });
         }
 
-        return formatar(novoSistema);
+        return formatar(novoSistema, usuarioAtual);
     });
 }
 
-async function atualizar(id, dados, usuarioAtual) {
+async function atualizar(id, dadosRecebidos, usuarioAtual) {
     const idNum = parseId(id, MSG.VALIDATION.INVALID_ID);
     const usuarioId = resolverUsuarioId(usuarioAtual);
+    const dados = semCamposDeInfraestrutura(dadosRecebidos, usuarioAtual);
 
     await garantirPlataformaDoFrontend(dados.plataformaFrontendId);
     const subdominios = await prepararSubdominiosDoSistema(idNum, dados.subdominios);
@@ -328,7 +355,7 @@ async function atualizar(id, dados, usuarioAtual) {
             });
         }
 
-        return formatar(sistemaAtualizado);
+        return formatar(sistemaAtualizado, usuarioAtual);
     });
 }
 

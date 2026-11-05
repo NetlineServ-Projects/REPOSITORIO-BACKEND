@@ -51,6 +51,8 @@ npm start               # http://localhost:3000
 | `ENCRYPTION_KEY` | Chave para encriptar credenciais, tokens e IPs: 64 caracteres hex (`openssl rand -hex 32`); a API não arranca com outro formato. **Não a mude** depois de haver dados: os valores encriptados deixam de poder ser lidos |
 | `FRONTEND_URL` | Endereço exato do frontend (CORS com credenciais) |
 | `COOKIE_SECURE` | `true` por defeito. `false` só num servidor de testes sem HTTPS |
+| `EMAIL_DOMINIOS_PERMITIDOS` | Domínios dos e-mails institucionais (por defeito `netline.co.mz`). Contas novas e e-mails alterados têm de ser destes domínios |
+| `LOGIN_SO_EMAIL_INSTITUCIONAL` | `true` para o login também recusar outros domínios. Ligue só depois de todas as contas, sobretudo as de administrador, terem o e-mail institucional |
 | `API_DOCS` | `true` por defeito: serve a documentação em `/api/v1/docs`. `false` desliga-a |
 | `ADMIN_NOME`, `ADMIN_EMAIL`, `ADMIN_SENHA`, ... | Administrador criado no primeiro arranque |
 
@@ -99,6 +101,7 @@ A especificação está em `src/docs/openapi.js`. Os corpos dos pedidos são ger
 - **Sessão:** o login devolve um cookie `netline_sessao` (`HttpOnly`, `Secure`, `SameSite=Strict`) e `POST /auth/logout` apaga-o. O cabeçalho `Authorization: Bearer` continua aceite, para ferramentas como o Postman.
 - **Login:** a mensagem é sempre "Credenciais incorretas.", e 5 tentativas falhadas no mesmo e-mail bloqueiam-no durante 15 minutos.
 - **Dados sensíveis:** palavras-passe, tokens e credenciais são guardados encriptados. Para os ver é preciso confirmar de novo a palavra-passe (`POST /auth/reautenticar`), o que dá um acesso de 3 minutos.
+- **Perfis e permissões:** cada utilizador tem um perfil (Administrador, Secretaria/RH, Programador, Consultor, ou outro criado em Configurações). O código verifica sempre permissões concretas (`src/constants/permissoes.js`), nunca o nome do perfil. O perfil e as permissões leem-se da base de dados em cada pedido, por isso uma mudança vale logo. Só o Administrador configura perfis, dá o perfil Administrador e altera contas de administradores.
 - **Ficheiros:** `/uploads` exige sessão. Os documentos seguem as mesmas regras de visibilidade da API (categorias sensíveis, pendentes e lixeira).
 
 ## Produção

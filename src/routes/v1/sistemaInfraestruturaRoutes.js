@@ -3,10 +3,10 @@ const router = Router();
 
 const sistemaInfraestruturaController = require("../../controllers/sistemaInfraestruturaController");
 const authMiddleware = require("../../middlewares/authMiddleware");
-const authorize = require("../../middlewares/roleMiddleware");
+const { exigirPermissao } = require("../../middlewares/roleMiddleware");
 const exigirReautenticacao = require("../../middlewares/exigirReautenticacao");
 const validate = require("../../validators/validate");
-const ROLES = require("../../constants/roles");
+const { PERMISSOES } = require("../../constants/permissoes");
 
 const {
   sistemaIdParamsSchema,
@@ -22,13 +22,13 @@ const {
 // com router.use(): um router.use() sem caminho correria para qualquer pedido
 // a /sistemas/* que chegasse aqui, e um 404 passaria a pedir reautenticação.
 //
-// Leitura: ADMIN e FUNCIONARIO. Sessão válida e reautenticação recente
+// Leitura: quem tem acesso à infraestrutura dos sistemas, com reautenticação recente
 // (token elevado, 3 min).
-const leitura = [authMiddleware, exigirReautenticacao];
+const leitura = [authMiddleware, exigirPermissao(PERMISSOES.SISTEMAS_INFRA_VER), exigirReautenticacao];
 
-// Escrita: exclusivo ADMIN. O perfil é verificado ANTES da reautenticação,
-// para um FUNCIONARIO receber 403 logo, sem ter de introduzir a password.
-const escrita = [authMiddleware, authorize(ROLES.ADMIN), exigirReautenticacao];
+// Escrita: quem gere a infraestrutura dos sistemas. A permissão é verificada ANTES da
+// reautenticação, para quem não a tem receber 403 logo, sem ter de introduzir a password.
+const escrita = [authMiddleware, exigirPermissao(PERMISSOES.SISTEMAS_INFRA_GERIR), exigirReautenticacao];
 
 // A validação vem depois da autenticação: quem não tem sessão nem token
 // elevado não recebe detalhes de validação.

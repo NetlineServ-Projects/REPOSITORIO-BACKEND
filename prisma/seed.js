@@ -1,5 +1,6 @@
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcrypt");
+const { PERFIS_INICIAIS } = require("../src/constants/permissoes");
 
 const prisma = new PrismaClient();
 
@@ -92,10 +93,23 @@ async function main() {
 
     console.log("Categorias inseridas com sucesso.");
 
+    // Perfis de acesso: só se criam os que faltam; os existentes podem ter sido editados
+    // em Configurações e não se mexe neles
+    for (const perfil of PERFIS_INICIAIS) {
+        await prisma.perfilAcesso.upsert({
+            where: { nome: perfil.nome },
+            update: {},
+            create: perfil
+        });
+    }
+
+    console.log("Perfis de acesso garantidos com sucesso.");
+
     // Cria o utilizador ADMIN a partir das variáveis de ambiente, se estiverem definidas
     if (process.env.ADMIN_EMAIL && process.env.ADMIN_SENHA) {
 
         const senhaHash = await bcrypt.hash(process.env.ADMIN_SENHA, 10);
+        const perfilAdministrador = await prisma.perfilAcesso.findFirst({ where: { administrador: true } });
 
         await prisma.usuario.upsert({
             where: {
@@ -109,7 +123,7 @@ async function main() {
                 numero: process.env.ADMIN_NUMERO || "",
                 cargo: process.env.ADMIN_CARGO || "Administrador",
                 departamento: process.env.ADMIN_DEPARTAMENTO || "",
-                perfil: "ADMIN",
+                perfilId: perfilAdministrador.id,
                 ativo: true
             }
         });

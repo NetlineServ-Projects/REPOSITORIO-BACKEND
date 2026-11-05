@@ -3,9 +3,9 @@ const router = Router();
 
 const imagemController = require("../../controllers/imagemController");
 const authMiddleware = require("../../middlewares/authMiddleware");
-const authorize = require("../../middlewares/roleMiddleware");
+const { exigirPermissao } = require("../../middlewares/roleMiddleware");
 const validate = require("../../validators/validate");
-const ROLES = require("../../constants/roles");
+const { PERMISSOES } = require("../../constants/permissoes");
 
 const {
   criarImagemSchema,
@@ -13,11 +13,11 @@ const {
   imagemIdParamsSchema,
 } = require("../../validators/imagemValidator");
 
-// Leitura: qualquer utilizador autenticado.
-const leitura = [authMiddleware];
+// Leitura: quem vê as plataformas ou edita a infraestrutura dos sistemas (escolhe a imagem).
+const leitura = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_VER, PERMISSOES.SISTEMAS_INFRA_GERIR)];
 
-// Escrita: exclusivo ADMIN.
-const escrita = [authMiddleware, authorize(ROLES.ADMIN)];
+// Escrita: quem gere as plataformas.
+const escrita = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_GERIR)];
 
 router.get("/", ...leitura, imagemController.listar);
 

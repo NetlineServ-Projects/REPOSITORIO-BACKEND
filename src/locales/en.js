@@ -2,6 +2,7 @@ module.exports = {
     AUTH: {
         LOGOUT_SUCCESS: "Logged out successfully.",
         CREDENCIAIS_INVALIDAS: "Invalid credentials.",
+        EMAIL_NAO_INSTITUCIONAL: (dominios) => `Sign in with your company email (${dominios}).`,
         MUITAS_TENTATIVAS: "Too many failed attempts. Wait 15 minutes and try again.",
         LOGIN_SUCCESS: "Login successful.",
         USER_NOT_FOUND: "User not found.",
@@ -18,7 +19,21 @@ module.exports = {
         REAUTENTICACAO_SUCESSO: "Re-authentication confirmed."
     },
 
+    PERFIL: {
+        CREATED: "Profile created successfully.",
+        UPDATED: "Profile updated successfully.",
+        DELETED: "Profile deleted successfully.",
+        NOT_FOUND: "Profile not found.",
+        NOME_EM_USO: "A profile with this name already exists.",
+        ADMINISTRADOR_BLOQUEADO: "The Administrator profile cannot be changed or deleted.",
+        EM_USO: "This profile is assigned to users. Change their profile before deleting it."
+    },
+
     USER: {
+        EMAIL_NAO_INSTITUCIONAL: (dominios) => `Use a company email (${dominios}).`,
+        SO_ADMINISTRADOR: "Only an administrator can assign the Administrator profile or change an administrator's account.",
+        PROPRIA_CONTA: "You cannot change the profile of, deactivate or delete your own account.",
+        ULTIMO_ADMINISTRADOR: "There must be at least one active administrator.",
         CREATED: "User created successfully.",
         UPDATED: "User updated successfully.",
         DELETED: "User deleted successfully.",

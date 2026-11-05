@@ -1,12 +1,14 @@
 const atividadeService = require("../services/atividadeService");
 const HTTP = require("../utils/httpsStatus");
 const response = require("../utils/response");
+const { PERMISSOES, temPermissao } = require("../constants/permissoes");
 
 exports.obterAtividadesRecentes = async (req, res, next) => {
   try {
     const limite = req.query.limite ? Number(req.query.limite) : 20;
-    const ehAdmin = req.user?.perfil === "ADMIN";
-    const usuarioId = ehAdmin
+    // Sem atividade.ver, cada um só vê a própria atividade
+    const verTodas = temPermissao(req.user, PERMISSOES.ATIVIDADE_VER);
+    const usuarioId = verTodas
       ? req.query.usuarioId
         ? Number(req.query.usuarioId)
         : undefined
