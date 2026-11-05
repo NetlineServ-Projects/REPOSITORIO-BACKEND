@@ -9,6 +9,7 @@ const AppError = require("../utils/AppError");
 const { formatarUsuario } = require("../utils/fileHelper");
 const { TODAS, normalizar } = require("../constants/permissoes");
 const limiteLogin = require("../utils/limiteTentativasLogin");
+const { ehEmailInstitucional, loginExigeEmailInstitucional, descricaoDominios } = require("../utils/emailInstitucional");
 
 // Hash de uma palavra-passe que ninguém tem: quando o e-mail não existe compara-se contra ele,
 // para a resposta demorar o mesmo e não denunciar quais e-mails estão registados
@@ -26,6 +27,11 @@ exports.login = async ({ email, senha }) => {
         const erro = new AppError(MSG.AUTH.MUITAS_TENTATIVAS, HTTP_STATUS.TOO_MANY_REQUESTS);
         erro.retryAfter = bloqueio;
         throw erro;
+    }
+
+    // Depende só do texto escrito, não da conta: não revela que e-mails estão registados
+    if (loginExigeEmailInstitucional() && !ehEmailInstitucional(email)) {
+        throw new AppError(MSG.AUTH.EMAIL_NAO_INSTITUCIONAL(descricaoDominios()), HTTP_STATUS.UNAUTHORIZED);
     }
 
     const user = await prisma.usuario.findUnique({

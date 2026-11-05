@@ -6,6 +6,7 @@ const HTTP_STATUS = require("../utils/httpsStatus");
 const AppError = require("../utils/AppError");
 const { formatarUsuario, apagarFicheiroAntigoPerfil } = require("../utils/fileHelper");
 const sessaoService = require("./sessaoService");
+const { ehEmailInstitucional, descricaoDominios } = require("../utils/emailInstitucional");
 
 
 const CAMPOS_PERMITIDOS_ATUALIZACAO = ["nome", "email", "senha", "numero", "cargo", "departamento", "perfilId", "ativo"];
@@ -42,6 +43,14 @@ async function garantirOutroAdministradorAtivo(usuarioId) {
     if (outros === 0) throw new AppError(MSG.USER.ULTIMO_ADMINISTRADOR, HTTP_STATUS.CONFLICT);
 }
 
+// Contas novas e e-mails alterados têm de ser institucionais. As contas antigas com outro
+// domínio continuam a poder ser editadas noutros campos, até alguém lhes mudar o e-mail.
+function garantirEmailInstitucional(email) {
+    if (!ehEmailInstitucional(email)) {
+        throw new AppError(MSG.USER.EMAIL_NAO_INSTITUCIONAL(descricaoDominios()), HTTP_STATUS.UNPROCESSABLE_ENTITY);
+    }
+}
+
 async function obterUsuario(id) {
     const usuario = await prisma.usuario.findUnique({ where: { id: Number(id) }, include: INCLUDE_PERFIL });
     if (!usuario) throw new AppError(MSG.USER.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
@@ -51,6 +60,8 @@ async function obterUsuario(id) {
 // ─── Operações ───────────────────────────────────────────────────────────────
 
 exports.criarUsuario = async ({ nome, email, senha, numero, cargo, departamento, perfilId }, ator) => {
+
+    garantirEmailInstitucional(email);
 
     const usuarioExistente = await prisma.usuario.findUnique({
         where: { email }
@@ -131,6 +142,8 @@ exports.atualizarUsuario = async (id, dadosAtualizacao, ator) => {
 
     // Se houver alteração de email, verifica se já pertence a outro utilizador
     if (dados.email && dados.email !== usuarioExistente.email) {
+        garantirEmailInstitucional(dados.email);
+
         const emailEmUso = await prisma.usuario.findUnique({
             where: { email: dados.email }
         });

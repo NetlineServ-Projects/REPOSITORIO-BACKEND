@@ -47,6 +47,8 @@ npm start               # http://localhost:3000
 | `ENCRYPTION_KEY` | Chave para encriptar credenciais, tokens e IPs. **Não a mude** depois de haver dados: os valores encriptados deixam de poder ser lidos |
 | `FRONTEND_URL` | Endereço exato do frontend (CORS com credenciais) |
 | `COOKIE_SECURE` | `true` por defeito. `false` só num servidor de testes sem HTTPS |
+| `EMAIL_DOMINIOS_PERMITIDOS` | Domínios dos e-mails institucionais (por defeito `netline.co.mz`). Contas novas e e-mails alterados têm de ser destes domínios |
+| `LOGIN_SO_EMAIL_INSTITUCIONAL` | `true` para o login também recusar outros domínios. Ligue só depois de todas as contas, sobretudo as de administrador, terem o e-mail institucional |
 | `ADMIN_NOME`, `ADMIN_EMAIL`, `ADMIN_SENHA`, ... | Administrador criado no primeiro arranque |
 
 O `.env` não vai para o Git. Use o `.env.example` como base.
