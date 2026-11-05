@@ -1,295 +1,301 @@
-name: CI/CD Pipeline - Demo
+name: Repositorio Demo - CI/CD Pipeline to Build and Deploy
 
 on:
   push:
-    branches: [demo]
+    branches:
+      - demo
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: netline-repositorio-demo-deploy
+  group: repositorio-demo-deploy
   cancel-in-progress: false
 
 env:
-  DOCKER_IMAGE: netlineserv/repositorio-backend:demo
-  DEPLOY_PATH: /root/projects/repositorio-backend
-  BACKUP_DIR: /root/projects/backups/repositorio-backend
-  BACKUP_KEEP: 10
-  DB_SERVICE: db
-  API_SERVICE: api
+  DOCKER_REPO: netlineserv/repositorio-backend
+  DOCKER_TAG: demo
+  NODE_VERSION: '22'
+  COMPOSE_FILE: docker-compose.yml
+  HEALTH_PATH: /api/v1/health
 
 jobs:
-  # CI - BUILD AND TEST
-  build-and-test:
-    name: Build and Test
+  build-and-pack:
+    name: Build, Test & Package App
+    if: github.ref == 'refs/heads/demo'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      release-tag: ${{ steps.meta.outputs.release-tag }}
+      # Versão que o /api/v1/health devolve (APP_VERSION dentro da imagem)
+      version: ${{ steps.meta.outputs.sha12 }}
+      digest: ${{ steps.push.outputs.digest }}
+    env:
+      # O prisma generate não liga à BD; só precisa de um URL válido
+      DATABASE_URL: mysql://build:build@localhost:3306/build
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/checkout@v5
         with:
-          node-version: "22"
-          cache: "npm"
+          persist-credentials: false
+
+      # Falha já, e não depois do build, se faltarem as credenciais do Docker Hub
+      - name: Check Docker Hub secrets
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          [ -n "$DOCKER_USERNAME" ] || { echo "::error::Secret em falta: DOCKER_USERNAME"; exit 1; }
+          [ -n "$DOCKER_PASSWORD" ] || { echo "::error::Secret em falta: DOCKER_PASSWORD"; exit 1; }
+
+      - name: Validate deploy files
+        run: |
+          test -f "$COMPOSE_FILE" || { echo "::error::$COMPOSE_FILE não encontrado"; exit 1; }
+          test -f Dockerfile || { echo "::error::Dockerfile não encontrado"; exit 1; }
+          test -f package-lock.json || { echo "::error::package-lock.json não encontrado (o Dockerfile usa npm ci)"; exit 1; }
+          # As variáveis reais estão no Coolify (as SERVICE_* são geradas por ele); aqui valida-se a estrutura
+          docker compose -f "$COMPOSE_FILE" config -q --no-interpolate
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Generate Prisma client
         run: npx prisma generate
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      - name: Run tests
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Test
+        run: npm run test --if-present
+
+      - name: Build
+        run: npm run build --if-present
+
+      - name: Image tags
+        id: meta
         run: |
-          if grep -q '"test"' package.json; then
-            npm test
-          fi
+          echo "sha12=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          echo "release-tag=${DOCKER_TAG}-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
-      - name: Build project
-        run: |
-          if grep -q '"build"' package.json; then
-            npm run build
-          fi
-
-
-  # DOCKER - BUILD AND PUSH
-  dockerize:
-    name: Docker Build and Push
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Docker Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      # Imagem local para o smoke test; o push a seguir reutiliza a cache
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.DOCKER_REPO }}:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.sha12 }}
+
+      # Arranca a imagem com o compose de deploy e uma BD vazia: confirma migrações,
+      # seed, arranque, healthchecks e versão antes de publicar a imagem
+      - name: Smoke test (docker compose)
+        env:
+          IMAGE_TAG: smoke
+          VERSION: ${{ steps.meta.outputs.sha12 }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/smoke.env" <<EOF
+          SERVICE_PASSWORD_MYSQLROOT=$(openssl rand -hex 16)
+          SERVICE_USER_MYSQL=smoke
+          SERVICE_PASSWORD_MYSQL=$(openssl rand -hex 16)
+          SERVICE_PASSWORD_64_JWT=$(openssl rand -hex 32)
+          SERVICE_PASSWORD_ADMIN=$(openssl rand -hex 16)
+          ENCRYPTION_KEY=$(openssl rand -hex 32)
+          FRONTEND_URL=http://localhost:5173
+          ADMIN_EMAIL=admin@smoke.test
+          EOF
+          compose() { docker compose -f "$COMPOSE_FILE" -p smoke --env-file "$RUNNER_TEMP/smoke.env" "$@"; }
+          trap 'compose logs --no-color --tail 100 api; compose down -v' EXIT
+
+          compose pull db
+          compose up -d --pull never --wait --wait-timeout 300
+          RESP=$(compose exec -T api wget -qO- http://127.0.0.1:3000/api/v1/health)
+          echo "$RESP"
+          [ "$(jq -r '.data.versao' <<<"$RESP")" = "$VERSION" ] || { echo "::error::O health não devolve a versão ${VERSION}"; exit 1; }
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        id: push
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }}
+            ${{ env.DOCKER_REPO }}:${{ steps.meta.outputs.release-tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.sha12 }}
 
-  # DEPLOY - DEMO SERVER
+      - name: Build summary
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.release-tag }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "### Imagem publicada"
+            echo "- \`${DOCKER_REPO}:${DOCKER_TAG}\`"
+            echo "- \`${DOCKER_REPO}:${RELEASE_TAG}\` (rollback)"
+            echo "- Digest: \`${DIGEST}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+  # O Coolify gere o recurso (compose, variáveis, domínio e proxy);
+  # o pipeline faz backup da BD, pede o deploy e espera pela versão nova.
+  # As migrações Prisma correm no arranque do contentor api (npm run start:prod).
   deploy:
     name: Deploy to DEMO
-    needs: dockerize
+    needs: build-and-pack
+    if: github.ref == 'refs/heads/demo'
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
+    environment: demo
+    env:
+      COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      COOLIFY_UUID: ${{ secrets.COOLIFY_RESOURCE_UUID }}
+      ENVIRONMENT: demo
+      RELEASE_TAG: ${{ needs.build-and-pack.outputs.release-tag }}
+      VERSION: ${{ needs.build-and-pack.outputs.version }}
+      # Endereço público da API (Variable ou Secret DEMO_HEALTH_URL, sem /api/v1/health):
+      # o deploy só passa quando ela responde com VERSION
+      HEALTH_URL: ${{ vars.DEMO_HEALTH_URL || secrets.DEMO_HEALTH_URL }}
+      # Backup MySQL por SSH antes do deploy (as migrações alteram a BD)
+      SSH_HOST: ${{ secrets.SERVER_IP }}
+      SSH_USER: ${{ secrets.SERVER_USERNAME }}
+      DB_SERVICE: db
+      BACKUP_DIR: /root/projects/backups/REPOSITORIO_BACKEND
+      BACKUP_KEEP: 10
     steps:
-      # SSH
+      - name: Checkout deploy scripts
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Check configuration
+        run: |
+          set -euo pipefail
+          # variável:secret
+          for pair in COOLIFY_URL:COOLIFY_URL COOLIFY_TOKEN:COOLIFY_API_TOKEN COOLIFY_UUID:COOLIFY_RESOURCE_UUID \
+                      SSH_HOST:SERVER_IP SSH_USER:SERVER_USERNAME; do
+            v=${pair%%:*}; [ -n "${!v}" ] || { echo "::error::Secret em falta: ${pair#*:}"; exit 1; }
+          done
+          [ -n "$HEALTH_URL" ] || { echo "::error::Defina DEMO_HEALTH_URL (Settings → Variables) com o endereço público da API"; exit 1; }
+          case "$HEALTH_URL" in
+            http://*|https://*) ;;
+            *) echo "::error::DEMO_HEALTH_URL tem de começar por https:// (ex: https://api.exemplo.com)"; exit 1 ;;
+          esac
+
       - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.SERVER_KEY }}
         run: |
-          mkdir -p ~/.ssh
-
-          printf "%s\n" "${{ secrets.DEMO_SERVER_SSH_KEY }}" \
-            > ~/.ssh/deploy_key
-
+          set -euo pipefail
+          [ -n "$SSH_KEY" ] || { echo "::error::Secret em falta: SERVER_KEY"; exit 1; }
+          install -m 700 -d ~/.ssh
+          # Uma chave guardada com fins de linha Windows (CRLF) é recusada pelo ssh
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-
-          ssh-keyscan -H \
-            ${{ secrets.DEMO_SERVER_IP }} \
-            >> ~/.ssh/known_hosts
-
-      # PULL IMAGE
-      - name: Pull latest image
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
-            set -e
-            cd ${{ env.DEPLOY_PATH }}
-            sudo docker pull ${{ env.DOCKER_IMAGE }}
-            echo "Image pulled successfully"
-          EOF
-
-      # VERIFY SERVICES
-      - name: Verify Docker Compose service names
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << EOF
-            set -e
-            cd ${{ env.DEPLOY_PATH }}
-            echo "Services defined in compose.yaml:"
-            sudo docker compose config --services
-            if ! sudo docker compose config --services | grep -qx "${{ env.DB_SERVICE }}"; then
-              echo "ERROR: service '${{ env.DB_SERVICE }}' not found in compose.yaml."
-              exit 1
+          # -P "": nunca fica à espera de uma passphrase
+          if ! ERRO_CHAVE=$(ssh-keygen -y -P "" -f ~/.ssh/deploy_key 2>&1 >/dev/null); then
+            # Diagnóstico sem mostrar a chave: só o tipo de conteúdo e o número de linhas
+            K=~/.ssh/deploy_key
+            if grep -qi 'passphrase' <<<"$ERRO_CHAVE" || grep -q 'ENCRYPTED' "$K"; then MOTIVO="tem passphrase; o deploy precisa de uma chave sem passphrase"
+            elif grep -q '^PuTTY-User-Key-File' "$K"; then MOTIVO="está no formato PuTTY (.ppk); converta com: puttygen chave.ppk -O private-openssh -o chave"
+            elif grep -qE '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)' "$K"; then MOTIVO="é uma chave PÚBLICA (.pub); use o ficheiro da chave privada"
+            elif ! grep -qE '^-----BEGIN [A-Z ]*PRIVATE KEY-----$' "$K"; then MOTIVO="não tem a linha -----BEGIN ... PRIVATE KEY----- sozinha numa linha"
+            elif ! grep -qE '^-----END [A-Z ]*PRIVATE KEY-----$' "$K"; then MOTIVO="não tem a linha -----END ... PRIVATE KEY----- (chave incompleta)"
+            elif [ "$(wc -l < "$K")" -lt 3 ]; then MOTIVO="perdeu as quebras de linha (está toda numa linha)"
+            else MOTIVO="tem o conteúdo corrompido ou cortado"
             fi
+            echo "::error::SERVER_KEY inválida: ${MOTIVO} ($(wc -l < "$K" | tr -d ' ') linhas). Volte a gravá-la com: gh secret set SERVER_KEY < ficheiro_da_chave_privada"
+            exit 1
+          fi
+          # Falhas de rede pontuais entre o runner e o servidor acontecem: tenta até 5 vezes
+          for tentativa in 1 2 3 4 5; do
+            ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+            [ -s ~/.ssh/known_hosts ] && break
+            echo "O servidor não respondeu na porta 22 (tentativa ${tentativa}/5); nova tentativa em $((tentativa * 5))s..."
+            sleep $((tentativa * 5))
+          done
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::O servidor (SERVER_IP) não respondeu na porta 22 após 5 tentativas"; exit 1; }
 
-            if ! sudo docker compose config --services | grep -qx "${{ env.API_SERVICE }}"; then
-             echo "ERROR: service '${{ env.API_SERVICE }}' not found in compose.yaml."
-             exit 1
-            fi
-          EOF
-
-      # START DATABASE
-      - name: Ensure database is up
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << EOF
-
-            set -e
-
-            cd ${{ env.DEPLOY_PATH }}
-
-            sudo docker compose up -d ${{ env.DB_SERVICE }}
-
-            echo "Waiting for database to be healthy..."
-
-            # Espera até 60 segundos pelo healthcheck do docker compose
-            for i in $(seq 1 12); do
-              STATUS=$(sudo docker compose ps --format json ${{ env.DB_SERVICE }} 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Health',''))" 2>/dev/null || echo "")
-              if [ "$STATUS" = "healthy" ]; then
-                echo "Database is healthy."
-                break
-              fi
-              echo "  Attempt $i/12 — waiting 5s..."
-              sleep 5
-              if [ "$i" = "12" ]; then
-                echo "ERROR: Database did not become healthy in time."
-                sudo docker compose ps
-                exit 1
-              fi
-            done
-
-          EOF
-
-      # BACKUP MYSQL DATABASE
       - name: Backup database
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << EOF
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 -o ConnectionAttempts=3 -o ServerAliveInterval=30 "${SSH_USER}@${SSH_HOST}" \
+            "APP_UUID='${COOLIFY_UUID}' DB_SERVICE='${DB_SERVICE}' BACKUP_DIR='${BACKUP_DIR}' BACKUP_KEEP='${BACKUP_KEEP}' RELEASE_TAG='${RELEASE_TAG}' bash -s" <<'EOF'
+          set -euo pipefail
 
-            set -e
+          # Como root não é preciso (nem sempre existe) sudo
+          sudo() { if [ "$(id -u)" -eq 0 ]; then "$@"; else command sudo "$@"; fi; }
 
-            cd ${{ env.DEPLOY_PATH }}
+          # O Coolify usa o UUID do recurso como projecto compose e nomeia os contentores <serviço>-<uuid>
+          CONTAINER=$(sudo docker ps -q \
+            --filter "label=com.docker.compose.project=${APP_UUID}" \
+            --filter "label=com.docker.compose.service=${DB_SERVICE}" | head -n1)
+          [ -n "$CONTAINER" ] || CONTAINER=$(sudo docker ps -q --filter "name=${DB_SERVICE}-${APP_UUID}" | head -n1)
 
-            sudo mkdir -p ${{ env.BACKUP_DIR }}
+          if [ -z "$CONTAINER" ]; then
+            echo "::warning::Contentor da BD não encontrado (primeiro deploy?). Backup saltado."
+            exit 0
+          fi
 
-            TIMESTAMP=\$(date +%Y-%m-%d_%H-%M-%S)
+          sudo mkdir -p "$BACKUP_DIR"
+          FILE="${BACKUP_DIR}/backup_$(date +%Y-%m-%d_%H-%M-%S)_before_${RELEASE_TAG}.sql.gz"
+          echo "A exportar BD para $FILE"
+          sudo docker exec "$CONTAINER" sh -c \
+            'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot --single-transaction --routines --triggers --no-tablespaces "$MYSQL_DATABASE"' \
+            | gzip | sudo tee "$FILE" > /dev/null
 
-            BACKUP_FILE="${{ env.BACKUP_DIR }}/backup_\${TIMESTAMP}.sql"
+          # mysqldump termina com "-- Dump completed"; sem isso o backup está incompleto
+          if ! sudo zcat "$FILE" | tail -n1 | grep -q "Dump completed"; then
+            echo "::error::Backup incompleto, deploy abortado."
+            sudo rm -f "$FILE"
+            exit 1
+          fi
 
-            echo "Creating MySQL backup..."
-
-            sudo docker compose exec -T \
-              ${{ env.DB_SERVICE }} \
-              sh -c 'mysqldump \
-                -u"\$MYSQL_USER" \
-                -p"\$MYSQL_PASSWORD" \
-                "\$MYSQL_DATABASE"' \
-              | sudo tee "\$BACKUP_FILE" > /dev/null
-
-            if [ ! -s "\$BACKUP_FILE" ]; then
-
-              echo "ERROR: backup file is empty."
-
-              sudo rm -f "\$BACKUP_FILE"
-
-              exit 1
-
-            fi
-
-            echo "Backup created successfully:"
-            echo "\$BACKUP_FILE"
-
-
-            echo "Rotating backups..."
-
-            cd ${{ env.BACKUP_DIR }}
-
-            sudo ls -1t backup_*.sql 2>/dev/null \
-              | tail -n +\$((${{ env.BACKUP_KEEP }} + 1)) \
-              | xargs -r sudo rm --
-
-
-            echo "Current backups:"
-
-            sudo ls -1t backup_*.sql
-
+          cd "$BACKUP_DIR"
+          sudo ls -1t backup_*.sql.gz | tail -n +$((BACKUP_KEEP + 1)) | while read -r antigo; do sudo rm -- "$antigo"; done
+          echo "Backup OK: $(sudo du -h "$FILE" | cut -f1)"
           EOF
 
+      # Pede o deploy e espera num só ciclo até o health público mostrar esta versão
+      # (confirma imagem nova, migrações, contentores e rota Traefik → api).
+      # Falha logo se o Coolify marcar o deploy como falhado/cancelado.
+      - name: Deploy to Coolify
+        env:
+          DEPLOY_TIMEOUT: 1200
+        run: HEALTH_URL="${HEALTH_URL%/}${HEALTH_PATH}" bash .github/scripts/coolify-deploy.sh
 
-
-      # DATABASE MIGRATIONS
-      - name: Run Prisma migrations
+      - name: Deploy summary
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
+          {
+            echo "### Deploy ${ENVIRONMENT} concluído (Coolify)"
+            echo "- Versão: \`${DOCKER_REPO}:${RELEASE_TAG}\` (\`${VERSION}\` em ${HEALTH_URL%/}${HEALTH_PATH})"
+            echo "- Backup prévio da BD em \`${BACKUP_DIR}\` no servidor"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-            set -e
-
-            cd ${{ env.DEPLOY_PATH }}
-
-            sudo docker compose run --rm \
-              --no-deps \
-              -u node \
-              api \
-              npx prisma migrate deploy
-
-            echo "Migrations completed successfully."
-
-          EOF
-
-
-
-      # DEPLOY API
-      - name: Deploy API with new image
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
-
-            set -e
-
-            cd ${{ env.DEPLOY_PATH }}
-
-            echo "Stopping current API..."
-
-            sudo docker compose stop api
-
-            sudo docker compose rm -f api
-
-            echo "Starting API with new image..."
-
-            sudo docker compose up -d \
-              --force-recreate \
-              --pull always \
-              api
-
-            echo "API deployed successfully."
-
-            sudo docker compose ps
-
-          EOF
-
-      # CLEANUP DOCKER
-      - name: Cleanup Docker
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DEMO_SERVER_USERNAME }}@${{ secrets.DEMO_SERVER_IP }} << 'EOF'
-
-            set -e
-
-            sudo docker image prune -f
-
-            sudo docker system prune -f --volumes=false
-
-          EOF
-
-      # CLEANUP SSH
       - name: Cleanup SSH
         if: always()
-        run: |
-          rm -f ~/.ssh/deploy_key
+        run: rm -f ~/.ssh/deploy_key
