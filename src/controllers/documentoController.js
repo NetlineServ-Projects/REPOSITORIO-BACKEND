@@ -64,8 +64,7 @@ exports.atualizarDocumento = async (req, res, next) => {
         const documentoAtualizado = await documentoService.atualizarDocumento(
             id,
             dadosAtualizacao,
-            req.user.perfil,
-            req.user // antes: req.user.nome — agora o service precisa também do id, para a Atividade
+            req.user
         );
         return response.success(res, MSG.DOCUMENTO.UPDATED, documentoAtualizado, HTTP.OK);
     } catch (error) {

@@ -18,7 +18,20 @@ module.exports = {
         REAUTENTICACAO_SUCESSO: "Re-authentication confirmed."
     },
 
+    PERFIL: {
+        CREATED: "Profile created successfully.",
+        UPDATED: "Profile updated successfully.",
+        DELETED: "Profile deleted successfully.",
+        NOT_FOUND: "Profile not found.",
+        NOME_EM_USO: "A profile with this name already exists.",
+        ADMINISTRADOR_BLOQUEADO: "The Administrator profile cannot be changed or deleted.",
+        EM_USO: "This profile is assigned to users. Change their profile before deleting it."
+    },
+
     USER: {
+        SO_ADMINISTRADOR: "Only an administrator can assign the Administrator profile or change an administrator's account.",
+        PROPRIA_CONTA: "You cannot change the profile of, deactivate or delete your own account.",
+        ULTIMO_ADMINISTRADOR: "There must be at least one active administrator.",
         CREATED: "User created successfully.",
         UPDATED: "User updated successfully.",
         DELETED: "User deleted successfully.",

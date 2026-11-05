@@ -3,12 +3,12 @@ const MSG = require("../utils/messages");
 const HTTP_STATUS = require("../utils/httpsStatus");
 const AppError = require("../utils/AppError");
 const { parseId } = require("../utils/fileHelper");
-const ROLES = require("../constants/roles");
+const { PERMISSOES, temPermissao, normalizar } = require("../constants/permissoes");
 const { calcularDiasParaExpirar } = require("./dominioService");
 
-// A partir de quantos dias antes da expiração os ADMIN são avisados
+// A partir de quantos dias antes da expiração quem gere as plataformas é avisado
 const DIAS_AVISO_DOMINIO = 30;
-// Os avisos de domínio geram-se quando o ADMIN consulta as notificações; no máximo
+// Os avisos de domínio geram-se quando essa pessoa consulta as notificações; no máximo
 // uma vez por este intervalo (o sino pergunta a contagem a cada minuto)
 const INTERVALO_SINCRONIZACAO_MS = 10 * 60 * 1000;
 const LIMITE_LISTA = 30;
@@ -29,16 +29,28 @@ const SELECT_NOTIFICACAO = {
 
 // ─── Criação (chamada dentro das transações de documentos) ──────────────────
 
-// Avisa todos os ADMIN ativos, exceto quem fez a ação
-async function notificarAdmins(tx, { tipo, referencia, documentoId, excetoUsuarioId }) {
-  const admins = await tx.usuario.findMany({
-    where: { perfil: ROLES.ADMIN, ativo: true, ...(excetoUsuarioId && { id: { not: excetoUsuarioId } }) },
+// Avisa todos os utilizadores ativos cujo perfil tem a permissão, exceto quem fez a ação
+async function notificarComPermissao(tx, permissao, { tipo, referencia, documentoId, excetoUsuarioId }) {
+  const perfis = await tx.perfilAcesso.findMany({
+    select: { id: true, administrador: true, permissoes: true },
+  });
+  const perfisComPermissao = perfis
+    .filter((p) => p.administrador || normalizar(p.permissoes ?? []).includes(permissao))
+    .map((p) => p.id);
+  if (perfisComPermissao.length === 0) return;
+
+  const destinatarios = await tx.usuario.findMany({
+    where: {
+      perfilId: { in: perfisComPermissao },
+      ativo: true,
+      ...(excetoUsuarioId && { id: { not: excetoUsuarioId } }),
+    },
     select: { id: true },
   });
-  if (admins.length === 0) return;
+  if (destinatarios.length === 0) return;
 
   await tx.notificacao.createMany({
-    data: admins.map((a) => ({ tipo, referencia, documentoId, usuarioId: a.id })),
+    data: destinatarios.map((u) => ({ tipo, referencia, documentoId, usuarioId: u.id })),
   });
 }
 
@@ -55,7 +67,7 @@ function dataIso(data) {
 }
 
 /**
- * Cria, para um ADMIN, os avisos dos domínios que expiram nos próximos 30 dias ou já
+ * Cria, para quem gere as plataformas, os avisos dos domínios que expiram nos próximos 30 dias ou já
  * expiraram. A chave (domínio + tipo + data de expiração) impede repetir o mesmo aviso;
  * se o domínio for renovado, a data muda e um futuro aviso volta a ser criado.
  */
@@ -89,7 +101,7 @@ async function sincronizarAvisosDominios(usuarioId) {
 // ─── Leitura e marcação ──────────────────────────────────────────────────────
 
 async function prepararParaLeitura(usuarioAtual) {
-  if (usuarioAtual.perfil === ROLES.ADMIN) {
+  if (temPermissao(usuarioAtual, PERMISSOES.INFRA_GERIR)) {
     await sincronizarAvisosDominios(usuarioAtual.id);
   }
 }
@@ -136,7 +148,7 @@ async function marcarTodasComoLidas(usuarioAtual) {
 }
 
 module.exports = {
-  notificarAdmins,
+  notificarComPermissao,
   notificarUsuario,
   listar,
   contarNaoLidas,

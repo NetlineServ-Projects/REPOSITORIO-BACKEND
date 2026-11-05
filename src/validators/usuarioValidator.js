@@ -1,5 +1,4 @@
 const { z } = require("zod");
-const ROLES = require("../constants/roles");
 
 const createUserSchema = z.object({
     nome: z.string().trim().min(3, "O nome deve ter pelo menos 3 caracteres."),
@@ -8,7 +7,7 @@ const createUserSchema = z.object({
     numero: z.string().trim().min(9, "Número inválido."),
     cargo: z.string().trim().min(2, "Cargo é obrigatório."),
     departamento: z.string().trim().min(2, "Departamento é obrigatório."),
-    perfil: z.enum([ROLES.ADMIN, ROLES.FUNCIONARIO])
+    perfilId: z.coerce.number().int().positive("Escolha um perfil.")
 });
 
 // Deriva o schema do PATCH tornando todos os campos opcionais, e adiciona

@@ -13,7 +13,7 @@ async function listarRecentes(limite = 20, usuarioId = undefined) {
     orderBy: { criadoEm: "desc" },
     take: limite,
     include: {
-      usuario: { select: { id: true, nome: true, perfil: true } },
+      usuario: { select: { id: true, nome: true, perfil: { select: { id: true, nome: true } } } },
       documento: { select: { id: true, titulo: true } },
       sistema: { select: { id: true, nome: true } },
     },

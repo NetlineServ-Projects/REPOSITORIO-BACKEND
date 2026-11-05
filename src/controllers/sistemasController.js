@@ -8,7 +8,7 @@ const response = require("../utils/response");
 
 exports.listar = async (req, res, next) => {
     try {
-        const sistemas = await sistemaService.listarTodos();
+        const sistemas = await sistemaService.listarTodos(req.user);
         return response.success(res, null, sistemas, HTTP.OK);
     } catch (error) {
         next(error);
@@ -18,7 +18,7 @@ exports.listar = async (req, res, next) => {
 exports.obterPorId = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const sistema = await sistemaService.obterPorId(id);
+        const sistema = await sistemaService.obterPorId(id, req.user);
         return response.success(res, null, sistema, HTTP.OK);
     } catch (error) {
         next(error);

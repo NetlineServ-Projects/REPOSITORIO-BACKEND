@@ -86,6 +86,7 @@ Todas as respostas seguem o formato `{ sucesso, mensagem, data }`. Para confirma
 - **Sessão:** o login devolve um cookie `netline_sessao` (`HttpOnly`, `Secure`, `SameSite=Strict`) e `POST /auth/logout` apaga-o. O cabeçalho `Authorization: Bearer` continua aceite, para ferramentas como o Postman.
 - **Login:** a mensagem é sempre "Credenciais incorretas.", e 5 tentativas falhadas no mesmo e-mail bloqueiam-no durante 15 minutos.
 - **Dados sensíveis:** palavras-passe, tokens e credenciais são guardados encriptados. Para os ver é preciso confirmar de novo a palavra-passe (`POST /auth/reautenticar`), o que dá um acesso de 3 minutos.
+- **Perfis e permissões:** cada utilizador tem um perfil (Administrador, Secretaria/RH, Programador, Consultor, ou outro criado em Configurações). O código verifica sempre permissões concretas (`src/constants/permissoes.js`), nunca o nome do perfil. O perfil e as permissões leem-se da base de dados em cada pedido, por isso uma mudança vale logo. Só o Administrador configura perfis, dá o perfil Administrador e altera contas de administradores.
 - **Ficheiros:** `/uploads` exige sessão. Os documentos seguem as mesmas regras de visibilidade da API (categorias sensíveis, pendentes e lixeira).
 
 ## Produção

@@ -5,6 +5,7 @@ const AppError = require("../utils/AppError");
 const { parseId, formatarDocumento } = require("../utils/fileHelper");
 const atividadeService = require("./atividadeService");
 const notificacaoService = require("./notificacaoService");
+const { PERMISSOES, temPermissao } = require("../constants/permissoes");
 
 const includePadrao = {
   categoria: true,
@@ -22,19 +23,23 @@ const includePadrao = {
 // Não tocam na base de dados; só calculam valores a partir dos dados recebidos.
 // ---------------------------------------------------------------------------
 
-function estadoInicialParaCriacao(perfil) {
-  // ADMIN publica imediatamente; FUNCIONARIO fica a aguardar aprovação
-  return perfil === "ADMIN" ? "APROVADO" : "PENDENTE";
+// Quem aprova documentos publica imediatamente; os outros ficam a aguardar aprovação
+function podeAprovar(usuario) {
+  return temPermissao(usuario, PERMISSOES.DOCUMENTOS_APROVAR);
 }
 
-function acaoDeCriacao(perfil, nomeSistema) {
-  const base = perfil === "ADMIN" ? "publicou o documento" : "submeteu o documento";
+function estadoInicialParaCriacao(usuario) {
+  return podeAprovar(usuario) ? "APROVADO" : "PENDENTE";
+}
+
+function acaoDeCriacao(usuario, nomeSistema) {
+  const base = podeAprovar(usuario) ? "publicou o documento" : "submeteu o documento";
   return nomeSistema ? `${base} no sistema "${nomeSistema}"` : base;
 }
 
-function calcularMudancaEstado(dados, perfil) {
+function calcularMudancaEstado(dados, usuario) {
   if (!dados.estado) return {};
-  if (perfil !== "ADMIN") throw new AppError(MSG.AUTH.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
+  if (!podeAprovar(usuario)) throw new AppError(MSG.AUTH.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
 
   const estado = dados.estado.toUpperCase();
   const resultado = { estado };
@@ -44,9 +49,9 @@ function calcularMudancaEstado(dados, perfil) {
   return resultado;
 }
 
-function calcularRestauro(dados, perfil) {
+function calcularRestauro(dados, usuario) {
   if (dados.apagadoEm !== null) return {};
-  if (perfil !== "ADMIN") throw new AppError(MSG.AUTH.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
+  if (!temPermissao(usuario, PERMISSOES.DOCUMENTOS_LIXEIRA)) throw new AppError(MSG.AUTH.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
   return { apagadoEm: null };
 }
 
@@ -89,7 +94,7 @@ exports.criarDocumento = async (dados, usuario) => {
         tamanho: BigInt(dados.tamanho || 0),
         categoriaId: categoriaIdNum,
         usuarioId: usuarioIdNum,
-        estado: estadoInicialParaCriacao(usuario.perfil),
+        estado: estadoInicialParaCriacao(usuario),
         ...(sistemaIdNum && { sistemaId: sistemaIdNum }),
       },
       include: includePadrao,
@@ -97,14 +102,14 @@ exports.criarDocumento = async (dados, usuario) => {
 
     await atividadeService.registrar(tx, {
       usuarioId: usuarioIdNum,
-      acao: acaoDeCriacao(usuario.perfil, documento.sistema?.nome),
+      acao: acaoDeCriacao(usuario, documento.sistema?.nome),
       documentoId: documento.id,
       sistemaId: documento.sistemaId ?? undefined,
     });
 
-    // Um documento à espera de aprovação avisa os ADMIN, para irem ao painel de aprovações
+    // Um documento à espera de aprovação avisa quem aprova, para ir ao painel de aprovações
     if (documento.estado === "PENDENTE") {
-      await notificacaoService.notificarAdmins(tx, {
+      await notificacaoService.notificarComPermissao(tx, PERMISSOES.DOCUMENTOS_APROVAR, {
         tipo: "DOCUMENTO_SUBMETIDO",
         // O admin vê logo a que sistema o documento pertence
         referencia: documento.sistema ? `${documento.titulo} · ${documento.sistema.nome}` : documento.titulo,
@@ -119,26 +124,36 @@ exports.criarDocumento = async (dados, usuario) => {
   return formatarDocumento(novoDocumento);
 };
 
-// Um FUNCIONARIO só vê documentos publicados (APROVADO) e os que ele próprio submeteu;
-// os pendentes/rejeitados dos outros só existem para quem os submeteu e para os ADMIN
+// Categorias sensíveis: só quem tem documentos.sensiveis. Pendentes e rejeitados dos outros:
+// só quem aprova. Os restantes veem os publicados (APROVADO) e os que eles próprios submeteram.
+// Documentos na lixeira: só quem tem documentos.lixeira.
 function podeVerDocumento(documento, usuario) {
-  if (usuario.perfil === "ADMIN") return true;
-  if (documento.categoria?.sensivel) return false;
+  if (documento.apagadoEm && !temPermissao(usuario, PERMISSOES.DOCUMENTOS_LIXEIRA)) return false;
+  if (documento.categoria?.sensivel && !temPermissao(usuario, PERMISSOES.DOCUMENTOS_SENSIVEIS)) return false;
+  if (podeAprovar(usuario)) return true;
   return documento.estado === "APROVADO" || documento.usuarioId === Number(usuario.id);
 }
 
 // Também usada para servir os ficheiros em /uploads (middleware ficheirosProtegidos)
 exports.podeVerDocumento = podeVerDocumento;
 
+// As mesmas regras do podeVerDocumento, em forma de filtro Prisma (sem a lixeira).
+// Também usada na lista de documentos do detalhe de um sistema.
+function filtroVisibilidade(usuario) {
+  const where = {};
+  if (!temPermissao(usuario, PERMISSOES.DOCUMENTOS_SENSIVEIS)) where.categoria = { sensivel: false };
+  if (!podeAprovar(usuario)) where.OR = [{ estado: "APROVADO" }, { usuarioId: Number(usuario.id) }];
+  return where;
+}
+
+exports.filtroVisibilidade = filtroVisibilidade;
+
 exports.listarDocumentos = async (usuario, apenasLixeira = false) => {
-  const where =
-    usuario.perfil === "ADMIN"
-      ? {}
-      : {
-          categoria: { sensivel: false },
-          OR: [{ estado: "APROVADO" }, { usuarioId: Number(usuario.id) }],
-        };
-  where.apagadoEm = apenasLixeira ? { not: null } : null;
+  if (apenasLixeira && !temPermissao(usuario, PERMISSOES.DOCUMENTOS_LIXEIRA)) {
+    throw new AppError(MSG.AUTH.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
+  }
+
+  const where = { ...filtroVisibilidade(usuario), apagadoEm: apenasLixeira ? { not: null } : null };
 
   const documentos = await prisma.documento.findMany({
     where,
@@ -169,17 +184,28 @@ exports.buscarDocumentoPorId = async (id, usuario) => {
 // Atualização parcial: título, descrição, categoria, e/ou estado (aprovar/rejeitar/restaurar).
 // usuarioAtual precisa de { id, nome } — o id vai para a Atividade, o nome não é usado aqui
 // (fica disponível para quem chamar, se precisar de o mostrar antes de ter a resposta).
-exports.atualizarDocumento = async (id, dados, perfil, usuarioAtual) => {
+exports.atualizarDocumento = async (id, dados, usuarioAtual) => {
   const idNum = parseId(id, MSG.VALIDATION.INVALID_ID);
   const usuarioIdNum = parseId(usuarioAtual.id, MSG.VALIDATION.INVALID_ID);
 
   const documentoAtualizado = await prisma.$transaction(async (tx) => {
-    const documentoExiste = await tx.documento.findUnique({ where: { id: idNum } });
-    if (!documentoExiste) throw new AppError(MSG.DOCUMENTO.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    const documentoExiste = await tx.documento.findUnique({
+      where: { id: idNum },
+      include: { categoria: { select: { sensivel: true } } },
+    });
+    // Quem não pode ver o documento também não o pode alterar (e não fica a saber que existe)
+    if (!documentoExiste || !podeVerDocumento(documentoExiste, usuarioAtual)) {
+      throw new AppError(MSG.DOCUMENTO.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+    // Editar título, descrição ou categoria: quem submeteu ou quem aprova
+    const editaCampos = ["titulo", "descricao", "categoriaId"].some((c) => dados[c] !== undefined);
+    if (editaCampos && documentoExiste.usuarioId !== usuarioIdNum && !podeAprovar(usuarioAtual)) {
+      throw new AppError(MSG.AUTH.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
+    }
 
     const dadosParaAtualizar = {
-      ...calcularMudancaEstado(dados, perfil),
-      ...calcularRestauro(dados, perfil),
+      ...calcularMudancaEstado(dados, usuarioAtual),
+      ...calcularRestauro(dados, usuarioAtual),
       ...calcularEdicaoCampos(dados),
     };
 
@@ -218,8 +244,18 @@ exports.eliminarDocumento = async (id, definitivo = false, usuarioAtual) => {
   const usuarioIdNum = usuarioAtual ? parseId(usuarioAtual.id, MSG.VALIDATION.INVALID_ID) : null;
 
   await prisma.$transaction(async (tx) => {
-    const documentoExiste = await tx.documento.findUnique({ where: { id: idNum } });
+    const documentoExiste = await tx.documento.findUnique({
+      where: { id: idNum },
+      include: { categoria: { select: { sensivel: true } } },
+    });
     if (!documentoExiste) throw new AppError(MSG.DOCUMENTO.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+
+    // Mover para a lixeira: documentos.eliminar. Eliminar de vez: documentos.lixeira
+    const permissao = definitivo ? PERMISSOES.DOCUMENTOS_LIXEIRA : PERMISSOES.DOCUMENTOS_ELIMINAR;
+    if (!temPermissao(usuarioAtual, permissao)) throw new AppError(MSG.AUTH.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
+    if (!podeVerDocumento(documentoExiste, usuarioAtual)) {
+      throw new AppError(MSG.DOCUMENTO.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
 
     if (definitivo) {
       if (!documentoExiste.apagadoEm) {

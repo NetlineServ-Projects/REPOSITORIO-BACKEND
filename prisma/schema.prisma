@@ -15,7 +15,8 @@ model Usuario {
   numero       String   @default("")
   cargo        String   @default("")
   departamento String   @default("")
-  perfil       Perfil   @default(FUNCIONARIO)
+  perfilId     Int
+  perfil       PerfilAcesso @relation(fields: [perfilId], references: [id])
   ativo        Boolean  @default(true)
   fotografia   String? 
   dataCriacao  DateTime @default(now())
@@ -28,6 +29,18 @@ model Usuario {
   atividades      Atividade[]
   sistemasCriados Sistema[]   @relation("CriadorDoSistema")
   notificacoes    Notificacao[]
+}
+
+// Perfil de acesso: um conjunto de permissões (ver src/constants/permissoes.js).
+// O perfil "administrador" tem tudo e não se pode editar nem apagar.
+model PerfilAcesso {
+  id            Int       @id @default(autoincrement())
+  nome          String    @unique
+  descricao     String    @default("")
+  administrador Boolean   @default(false)
+  permissoes    Json
+  dataCriacao   DateTime  @default(now())
+  usuarios      Usuario[]
 }
 
 model Documento {
@@ -339,11 +352,6 @@ enum EstadoDocumento {
   PENDENTE
   APROVADO
   REJEITADO
-}
-
-enum Perfil {
-  ADMIN
-  FUNCIONARIO
 }
 
 enum StatusSistema {

@@ -23,7 +23,20 @@ module.exports = {
         UPDATED: "Utilizador atualizado com sucesso.",
         DELETED: "Utilizador eliminado com sucesso.",
         NOT_FOUND: "Utilizador não encontrado.",
-        EMAIL_ALREADY_EXISTS: "Já existe um utilizador com este e-mail."
+        EMAIL_ALREADY_EXISTS: "Já existe um utilizador com este e-mail.",
+        SO_ADMINISTRADOR: "Só um administrador pode atribuir o perfil Administrador ou alterar a conta de um administrador.",
+        PROPRIA_CONTA: "Não pode alterar o perfil, desativar nem eliminar a sua própria conta.",
+        ULTIMO_ADMINISTRADOR: "Tem de existir pelo menos um administrador ativo."
+    },
+
+    PERFIL: {
+        CREATED: "Perfil criado com sucesso.",
+        UPDATED: "Perfil atualizado com sucesso.",
+        DELETED: "Perfil eliminado com sucesso.",
+        NOT_FOUND: "Perfil não encontrado.",
+        NOME_EM_USO: "Já existe um perfil com este nome.",
+        ADMINISTRADOR_BLOQUEADO: "O perfil Administrador não pode ser alterado nem eliminado.",
+        EM_USO: "Este perfil está atribuído a utilizadores. Mude-lhes o perfil antes de o eliminar."
     },
 
     DOCUMENTO: {

@@ -3,9 +3,9 @@ const router = Router();
 
 const plataformaController = require("../../controllers/plataformaController");
 const authMiddleware = require("../../middlewares/authMiddleware");
-const authorize = require("../../middlewares/roleMiddleware");
+const { exigirPermissao } = require("../../middlewares/roleMiddleware");
 const validate = require("../../validators/validate");
-const ROLES = require("../../constants/roles");
+const { PERMISSOES } = require("../../constants/permissoes");
 const exigirReautenticacao = require("../../middlewares/exigirReautenticacao");
 const { uploadLogotipo } = require("../../config/multer");
 
@@ -15,13 +15,13 @@ const {
   plataformaIdParamsSchema,
 } = require("../../validators/plataformaValidator");
 
-// Leitura: qualquer utilizador autenticado (ADMIN e FUNCIONARIO).
-// Escrita: exclusivo ADMIN.
-// Revelar o token: exige reautenticação recente (token elevado, 3 min),
+// Leitura: quem vê as plataformas ou edita a infraestrutura dos sistemas (escolhe a plataforma).
+// Escrita: quem gere as plataformas.
+// Revelar o token: quem vê as plataformas, com reautenticação recente (token elevado, 3 min),
 // tal como a password do servidor.
-const leitura = [authMiddleware];
-const escrita = [authMiddleware, authorize(ROLES.ADMIN)];
-const leituraProtegida = [authMiddleware, exigirReautenticacao];
+const leitura = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_VER, PERMISSOES.SISTEMAS_INFRA_GERIR)];
+const escrita = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_GERIR)];
+const leituraProtegida = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_VER), exigirReautenticacao];
 
 router.get("/", ...leitura, plataformaController.listar);
 
@@ -47,7 +47,7 @@ router.get(
   plataformaController.revelarToken
 );
 
-// Upload do logótipo (ADMIN; multipart/form-data, campo: "logotipo")
+// Upload do logótipo (quem gere as plataformas; multipart/form-data, campo: "logotipo")
 router.patch(
   "/:id/logotipo",
   ...escrita,
