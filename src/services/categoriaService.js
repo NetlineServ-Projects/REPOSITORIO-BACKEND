@@ -1,16 +1,18 @@
 const prisma = require("../config/prisma");
 const cache = require("../utils/cache");
+const { PERMISSOES, temPermissao } = require("../constants/permissoes");
 
-exports.listarCategorias = async (perfil) => {
+exports.listarCategorias = async (usuario) => {
 
-    const chaveCache = `categorias:${perfil}`;
+    const verSensiveis = temPermissao(usuario, PERMISSOES.DOCUMENTOS_SENSIVEIS);
+    const chaveCache = `categorias:${verSensiveis ? "todas" : "nao-sensiveis"}`;
 
     const cacheHit = cache.get(chaveCache);
     if (cacheHit) {
         return cacheHit;
     }
 
-    const where = perfil === "ADMIN" ? {} : { sensivel: false };
+    const where = verSensiveis ? {} : { sensivel: false };
 
     const categorias = await prisma.categoria.findMany({
         where,

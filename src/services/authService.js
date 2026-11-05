@@ -7,7 +7,9 @@ const MSG = require("../utils/messages");
 const HTTP_STATUS = require("../utils/httpsStatus");
 const AppError = require("../utils/AppError");
 const { formatarUsuario } = require("../utils/fileHelper");
+const { TODAS, normalizar } = require("../constants/permissoes");
 const limiteLogin = require("../utils/limiteTentativasLogin");
+const { ehEmailInstitucional, loginExigeEmailInstitucional, descricaoDominios } = require("../utils/emailInstitucional");
 
 // Hash de uma palavra-passe que ninguém tem: quando o e-mail não existe compara-se contra ele,
 // para a resposta demorar o mesmo e não denunciar quais e-mails estão registados
@@ -27,8 +29,14 @@ exports.login = async ({ email, senha }) => {
         throw erro;
     }
 
+    // Depende só do texto escrito, não da conta: não revela que e-mails estão registados
+    if (loginExigeEmailInstitucional() && !ehEmailInstitucional(email)) {
+        throw new AppError(MSG.AUTH.EMAIL_NAO_INSTITUCIONAL(descricaoDominios()), HTTP_STATUS.UNAUTHORIZED);
+    }
+
     const user = await prisma.usuario.findUnique({
-        where: { email }
+        where: { email },
+        include: { perfil: true }
     });
 
     const senhaValida = await bcrypt.compare(senha, user?.senha ?? HASH_FALSO);
@@ -40,12 +48,13 @@ exports.login = async ({ email, senha }) => {
 
     limiteLogin.limpar(email);
 
+    // O token só identifica o utilizador: o perfil e as permissões leem-se a cada pedido
+    // (sessaoService), para uma mudança de perfil valer logo
     const token = jwt.sign(
         {
             id: user.id,
             nome: user.nome,
-            email: user.email,
-            perfil: user.perfil
+            email: user.email
         },
         process.env.JWT_SECRET,
         { expiresIn: "1d" }
@@ -53,22 +62,34 @@ exports.login = async ({ email, senha }) => {
 
     return {
         token,
-        user: formatarUsuario(user)
+        user: comAcesso(user)
     };
 };
+
+// Dados do utilizador com o perfil e a lista de permissões, para o frontend decidir o que mostrar.
+// (A API volta a verificar tudo: esconder um botão não é segurança.)
+function comAcesso(user) {
+    const { perfil, ...resto } = formatarUsuario(user);
+    return {
+        ...resto,
+        perfil: { id: perfil.id, nome: perfil.nome, administrador: perfil.administrador },
+        permissoes: perfil.administrador ? TODAS : normalizar(perfil.permissoes ?? []),
+    };
+}
 
 // UTILIZADOR AUTENTICADO
 exports.getUserById = async (id) => {
 
     const user = await prisma.usuario.findUnique({
-        where: { id }
+        where: { id },
+        include: { perfil: true }
     });
 
     if (!user) {
         return null;
     }
 
-    return formatarUsuario(user);
+    return comAcesso(user);
 };
 
 // ALTERAR SENHA (opcional, feito pelo próprio utilizador)

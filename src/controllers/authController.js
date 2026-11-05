@@ -69,8 +69,9 @@ exports.alterarSenha = async (req, res, next) => {
 // =======================================
 exports.atualizarPerfil = async (req, res, next) => {
     try {
-        const targetUserId = req.params.id ?? req.user.id;
-        const usuarioAtualizado = await usuarioService.atualizarUsuario(targetUserId, req.body);
+        // Os próprios dados: o perfil e o estado da conta nunca se mudam por aqui
+        const { perfilId, ativo, senha, ...dados } = req.body;
+        const usuarioAtualizado = await usuarioService.atualizarUsuario(req.user.id, dados, req.user);
         
         return response.success(res, MSG.USER.UPDATED, usuarioAtualizado, HTTP.OK);
     } catch (error) {

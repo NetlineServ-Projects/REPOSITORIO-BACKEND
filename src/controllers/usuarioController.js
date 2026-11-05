@@ -8,7 +8,7 @@ const { construirUrlFotografia } = require("../utils/fileHelper");
 
 exports.criarUsuario = async (req, res, next) => {
     try {
-        const usuario = await usuarioService.criarUsuario(req.body);
+        const usuario = await usuarioService.criarUsuario(req.body, req.user);
         return response.success(res, MSG.USER.CREATED, usuario, HTTP.CREATED);
     } catch (error) {
         next(error);
@@ -38,7 +38,7 @@ exports.atualizarUsuario = async (req, res, next) => {
     try {
         const { id } = req.params;
         // A validação de corpo vazio é feita pelo schema Zod no validator.
-        const usuarioAtualizado = await usuarioService.atualizarUsuario(id, req.body);
+        const usuarioAtualizado = await usuarioService.atualizarUsuario(id, req.body, req.user);
         return response.success(res, MSG.USER.UPDATED, usuarioAtualizado, HTTP.OK);
     } catch (error) {
         next(error);
@@ -48,7 +48,7 @@ exports.atualizarUsuario = async (req, res, next) => {
 exports.eliminarUsuario = async (req, res, next) => {
     try {
         const { id } = req.params;
-        await usuarioService.eliminarUsuario(id);
+        await usuarioService.eliminarUsuario(id, req.user);
         return response.success(res, MSG.USER.DELETED, null, HTTP.OK);
     } catch (error) {
         next(error);

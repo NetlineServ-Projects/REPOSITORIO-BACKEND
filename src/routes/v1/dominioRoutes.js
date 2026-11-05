@@ -3,9 +3,9 @@ const router = Router();
 
 const dominioController = require("../../controllers/dominioController");
 const authMiddleware = require("../../middlewares/authMiddleware");
-const authorize = require("../../middlewares/roleMiddleware");
+const { exigirPermissao } = require("../../middlewares/roleMiddleware");
 const validate = require("../../validators/validate");
-const ROLES = require("../../constants/roles");
+const { PERMISSOES } = require("../../constants/permissoes");
 
 const {
   criarDominioSchema,
@@ -13,10 +13,10 @@ const {
   dominioIdParamsSchema,
 } = require("../../validators/dominioValidator");
 
-// Leitura: qualquer utilizador autenticado (ADMIN e FUNCIONARIO).
-// Escrita: exclusivo ADMIN. Não há reautenticação: o domínio não guarda dados sensíveis.
-const leitura = [authMiddleware];
-const escrita = [authMiddleware, authorize(ROLES.ADMIN)];
+// Leitura: quem vê as plataformas ou edita a infraestrutura dos sistemas (escolhe o domínio).
+// Escrita: quem gere as plataformas. Não há reautenticação: o domínio não guarda dados sensíveis.
+const leitura = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_VER, PERMISSOES.SISTEMAS_INFRA_GERIR)];
+const escrita = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_GERIR)];
 
 router.get("/", ...leitura, dominioController.listar);
 

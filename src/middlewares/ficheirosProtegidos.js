@@ -30,9 +30,8 @@ async function autorizarFicheiro(req, res, next) {
       include: { categoria: { select: { sensivel: true } } },
     });
 
+    // Inclui a lixeira: só quem tem documentos.lixeira vê os que lá estão
     if (!documento || !podeVerDocumento(documento, req.user)) return naoEncontrado(res);
-    // Documentos na lixeira só os administradores os veem
-    if (documento.apagadoEm && req.user.perfil !== "ADMIN") return naoEncontrado(res);
 
     // O browser não deve guardar cópias partilhadas de um ficheiro protegido
     res.set("Cache-Control", "private, no-store");
