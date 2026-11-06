@@ -228,13 +228,25 @@ function resolverUsuarioId(usuarioAtual) {
 }
 
 /**
- * Quem criou o sistema (e ainda pode criar sistemas) edita-o e elimina-o. Quem tem
- * sistemas.gerir pode sempre, também os sistemas sem criador (antigos, ou de utilizadores eliminados).
+ * Editar: qualquer pessoa que trabalhe com sistemas (sistemas.criar ou sistemas.gerir),
+ * não só quem o criou.
  */
-function garantirPodeGerir(sistema, usuarioAtual) {
+function garantirPodeEditar(usuarioAtual) {
     if (temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_GERIR)) return;
-    const ehCriador = sistema.criadoPorId !== null && sistema.criadoPorId === usuarioAtual?.id;
-    if (ehCriador && temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_CRIAR)) return;
+    if (temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_CRIAR)) return;
+    throw new AppError(MSG.SISTEMA.SEM_PERMISSAO_EDITAR, HTTP_STATUS.FORBIDDEN);
+}
+
+/**
+ * Eliminar: só quem criou o sistema. Os sistemas sem criador (antigos, ou de utilizadores
+ * eliminados) ficam para quem tem sistemas.gerir, senão ninguém os poderia eliminar.
+ */
+function garantirPodeEliminar(sistema, usuarioAtual) {
+    if (sistema.criadoPorId === null) {
+        if (temPermissao(usuarioAtual, PERMISSOES.SISTEMAS_GERIR)) return;
+    } else if (sistema.criadoPorId === usuarioAtual?.id) {
+        return;
+    }
     throw new AppError(MSG.SISTEMA.SEM_PERMISSAO, HTTP_STATUS.FORBIDDEN);
 }
 
@@ -332,7 +344,7 @@ async function atualizar(id, dadosRecebidos, usuarioAtual) {
         if (!sistemaExiste) {
             throw new AppError(MSG.SISTEMA.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
         }
-        garantirPodeGerir(sistemaExiste, usuarioAtual);
+        garantirPodeEditar(usuarioAtual);
 
         await tx.sistema.update({
             where: { id: idNum },
@@ -372,7 +384,7 @@ async function apagar(id, usuarioAtual) {
         if (!sistemaExiste) {
             throw new AppError(MSG.SISTEMA.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
         }
-        garantirPodeGerir(sistemaExiste, usuarioAtual);
+        garantirPodeEliminar(sistemaExiste, usuarioAtual);
 
         // Os subdomínios, a infraestrutura e as credenciais saem em cascata
         await tx.sistema.delete({ where: { id: idNum } });

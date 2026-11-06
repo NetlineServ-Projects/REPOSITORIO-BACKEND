@@ -83,7 +83,8 @@ module.exports = {
         INFRA_IMAGEM_SO_CONTAINERIZACAO: "Only containerization platforms have images.",
         INFRA_IMAGEM_FORA_DA_PLATAFORMA: "The selected image does not belong to this platform.",
         INFRA_IMAGEM_NAO_CONTAINERIZACAO: "Only containerization platforms can have images associated.",
-        SEM_PERMISSAO: "Only the user who created this system (or an administrator) can edit or delete it.",
+        SEM_PERMISSAO: "Only the user who created this system can delete it.",
+        SEM_PERMISSAO_EDITAR: "You do not have permission to edit systems.",
 
     },
     PLATAFORMA: {
@@ -98,8 +99,9 @@ module.exports = {
         TIPO_INCOMPATIVEL: "The type cannot be changed: the platform has linked records that are incompatible with the new type.",
         TEM_DEPENDENCIAS: "The platform cannot be deleted: it still has domains, servers, images or systems linked to it.",
         CAMPOS_REGISTRY_INVALIDOS: "Registry data can only be defined on Containerization platforms.",
-        TOKEN_OBTIDO: "Registry token retrieved successfully.",
-        TOKEN_NAO_DEFINIDO: "This platform does not have a registry token defined.",
+        TOKEN_OBTIDO: "Token retrieved successfully.",
+        TOKEN_NAO_DEFINIDO: "This access account does not have a token defined.",
+        ACESSO_NAO_ENCONTRADO: "Access account not found on this platform.",
         FORNECEDORES_OBTIDOS: "Suppliers retrieved successfully.",
         FORNECEDOR_INVALIDO_PARA_TIPO: "The selected supplier does not belong to this type of platform.",
         NOME_OBRIGATORIO_OUTRO: 'Indicate the platform name when the supplier is "Other".',
@@ -143,6 +145,7 @@ module.exports = {
         NOME_JA_EXISTE: "A domain with this name already exists.",
         PLATAFORMA_INVALIDA: "Domains can only be registered on Domain management platforms.",
         PLATAFORMA_INATIVA: "The selected platform is inactive.",
+        CONTA_FORA_DA_PLATAFORMA: "The selected account does not belong to this platform.",
         TEM_DEPENDENCIAS: "The domain cannot be deleted: it still has subdomains linked to it.",
     },
 

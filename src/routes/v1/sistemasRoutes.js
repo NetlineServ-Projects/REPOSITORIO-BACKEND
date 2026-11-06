@@ -31,7 +31,7 @@ router.patch(
   sistemaController.atualizar
 );
 
-// Editar e eliminar: quem criou o sistema, ou quem gere todos os sistemas (verificado no service)
+// Editar: quem tem sistemas.criar ou sistemas.gerir. Eliminar: só quem criou o sistema (verificado no service)
 router.delete(
   "/:id",
   authMiddleware,

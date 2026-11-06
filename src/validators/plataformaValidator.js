@@ -55,8 +55,8 @@ const textoOpcionalSchema = (campo) =>
       .optional()
   );
 
-// Sem trim (um token não deve ser alterado). "" é ignorado: no PATCH, deixar o campo
-// vazio significa "manter o token atual". Para apagar o token, enviar null.
+// Sem trim (um token não deve ser alterado). "" é ignorado: ao editar uma conta, deixar o
+// campo vazio significa "manter o token atual". Para apagar o token, enviar null.
 const tokenSchema = z.preprocess(
   (valor) => (valor === "" ? undefined : valor),
   z
@@ -66,6 +66,26 @@ const tokenSchema = z.preprocess(
     .optional()
 );
 
+const MAX_ACESSOS = 50;
+
+// Uma conta de acesso da plataforma. Com id edita uma conta que já existe; sem id cria uma nova.
+const acessoSchema = z
+  .object({
+    id: z.number({ error: "ID da conta inválido." }).int("ID da conta inválido.").positive("ID da conta inválido.").optional(),
+    descricao: textoOpcionalSchema("A descrição da conta"),
+    utilizador: textoOpcionalSchema("O utilizador"),
+    token: tokenSchema,
+  })
+  .refine((acesso) => acesso.id !== undefined || acesso.utilizador || acesso.token, {
+    error: "Cada conta de acesso precisa de um utilizador ou de um token.",
+  });
+
+// Lista completa das contas: as que não vierem (pelo id) são apagadas
+const acessosSchema = z
+  .array(acessoSchema, { error: "As contas de acesso devem ser uma lista." })
+  .max(MAX_ACESSOS, `Uma plataforma não pode ter mais de ${MAX_ACESSOS} contas de acesso.`)
+  .optional();
+
 const criarPlataformaSchema = z.object({
   nome: nomeSchema,
   tipo: z.enum(TIPOS_PLATAFORMA, {
@@ -74,8 +94,7 @@ const criarPlataformaSchema = z.object({
   fornecedor: fornecedorSchema,
   urlPainel: urlPainelSchema,
   ativo: z.boolean({ error: "O campo ativo deve ser verdadeiro ou falso." }).optional(),
-  utilizador: textoOpcionalSchema("O utilizador"),
-  token: tokenSchema,
+  acessos: acessosSchema,
   // Só para CONTAINERIZACAO (verificado no service)
   registryUrl: registryUrlSchema,
   namespace: textoOpcionalSchema("O namespace"),
@@ -87,12 +106,16 @@ const atualizarPlataformaSchema = criarPlataformaSchema
     error: "Indique pelo menos um campo para atualizar.",
   });
 
-const plataformaIdParamsSchema = z.object({
-  id: z.coerce.number({ error: "ID inválido." }).int("ID inválido.").positive("ID inválido."),
-});
+const idSchema = z.coerce.number({ error: "ID inválido." }).int("ID inválido.").positive("ID inválido.");
+
+const plataformaIdParamsSchema = z.object({ id: idSchema });
+
+// Revelar o token de uma conta: /plataformas/:id/acessos/:acessoId/token
+const acessoParamsSchema = z.object({ id: idSchema, acessoId: idSchema });
 
 module.exports = {
   criarPlataformaSchema,
   atualizarPlataformaSchema,
   plataformaIdParamsSchema,
+  acessoParamsSchema,
 };

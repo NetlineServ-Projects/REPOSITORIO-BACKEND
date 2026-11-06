@@ -83,7 +83,8 @@ module.exports = {
         INFRA_IMAGEM_SO_CONTAINERIZACAO: "Só as plataformas de containerização têm imagens.",
         INFRA_IMAGEM_FORA_DA_PLATAFORMA: "A imagem escolhida não pertence a esta plataforma.",
         INFRA_IMAGEM_NAO_CONTAINERIZACAO: "Só é possível associar imagens a plataformas de containerização.",
-        SEM_PERMISSAO: "Só quem criou o sistema (ou um administrador) o pode editar ou eliminar.",
+        SEM_PERMISSAO: "Só quem criou o sistema o pode eliminar.",
+        SEM_PERMISSAO_EDITAR: "Não tem permissão para editar sistemas.",
     },
 
     PLATAFORMA: {
@@ -99,7 +100,8 @@ module.exports = {
         TEM_DEPENDENCIAS: "Não é possível eliminar a plataforma: ainda tem domínios, servidores, imagens ou sistemas associados.",
         CAMPOS_REGISTRY_INVALIDOS: "Os dados de registry só podem ser definidos em plataformas do tipo Containerização.",
         TOKEN_OBTIDO: "Token obtido com sucesso.",
-        TOKEN_NAO_DEFINIDO: "Esta plataforma não tem token definido.",
+        TOKEN_NAO_DEFINIDO: "Esta conta de acesso não tem token definido.",
+        ACESSO_NAO_ENCONTRADO: "Conta de acesso não encontrada nesta plataforma.",
         FORNECEDORES_OBTIDOS: "Fornecedores obtidos com sucesso.",
         FORNECEDOR_INVALIDO_PARA_TIPO: "O fornecedor escolhido não pertence a este tipo de plataforma.",
         NOME_OBRIGATORIO_OUTRO: 'Indique o nome da plataforma quando o fornecedor é "Outro".',
@@ -143,6 +145,7 @@ module.exports = {
         NOME_JA_EXISTE: "Já existe um domínio com este nome.",
         PLATAFORMA_INVALIDA: "Só é possível registar domínios em plataformas do tipo Gestão de domínio.",
         PLATAFORMA_INATIVA: "A plataforma selecionada está inativa.",
+        CONTA_FORA_DA_PLATAFORMA: "A conta escolhida não pertence a esta plataforma.",
         TEM_DEPENDENCIAS: "Não é possível eliminar o domínio: ainda tem subdomínios associados.",
     },
 

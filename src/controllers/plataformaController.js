@@ -87,7 +87,7 @@ exports.apagar = async (req, res, next) => {
 
 exports.revelarToken = async (req, res, next) => {
     try {
-        const resultado = await service.revelarToken(req.params.id, req.user.id);
+        const resultado = await service.revelarToken(req.params.id, req.params.acessoId, req.user.id);
 
         // Um segredo nunca deve ficar em cache do browser nem de proxies
         res.set("Cache-Control", "no-store");
