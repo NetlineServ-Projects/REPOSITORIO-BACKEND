@@ -13,8 +13,8 @@ const PERMISSOES = Object.freeze({
     DOCUMENTOS_LIXEIRA: "documentos.lixeira", // ver a lixeira, restaurar e eliminar definitivamente
 
     // Sistemas
-    SISTEMAS_CRIAR: "sistemas.criar", // criar sistemas e editar/eliminar os que criou
-    SISTEMAS_GERIR: "sistemas.gerir", // editar/eliminar qualquer sistema
+    SISTEMAS_CRIAR: "sistemas.criar", // criar e editar sistemas; eliminar só os que criou
+    SISTEMAS_GERIR: "sistemas.gerir", // editar sistemas e eliminar os que não têm criador
     SISTEMAS_INFRA_VER: "sistemas.infraestrutura.ver", // aba de infraestrutura e credenciais
     SISTEMAS_INFRA_GERIR: "sistemas.infraestrutura.gerir", // criar e editar infraestrutura e credenciais
 

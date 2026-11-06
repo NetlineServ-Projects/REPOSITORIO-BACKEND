@@ -30,8 +30,11 @@ const SELECT_PLATAFORMA = {
   logotipo: true,
   urlPainel: true,
   ativo: true,
-  utilizador: true,
-  tokenCifrado: true, // lido só para saber se existe (ver formatar)
+  // Contas de acesso: o token cifrado é lido só para saber se existe (ver formatar)
+  acessos: {
+    select: { id: true, descricao: true, utilizador: true, tokenCifrado: true },
+    orderBy: { id: "asc" },
+  },
   registryUrl: true,
   namespace: true,
   criadoEm: true,
@@ -309,11 +312,15 @@ function listarSistemasHospedados({ infraestruturas = [], imagens = [], sistemas
 }
 
 function formatar(plataforma) {
-  const { _count, tokenCifrado, infraestruturas, imagens, sistemasFrontend, ...resto } = plataforma;
+  const { _count, acessos, infraestruturas, imagens, sistemasFrontend, ...resto } = plataforma;
   const sistemasHospedados = listarSistemasHospedados({ infraestruturas, imagens, sistemasFrontend });
   return {
     ...resto,
-    temToken: Boolean(tokenCifrado),
+    // O token nunca sai aqui: só pela rota protegida com reautenticação
+    acessos: (acessos ?? []).map(({ tokenCifrado, ...acesso }) => ({
+      ...acesso,
+      temToken: Boolean(tokenCifrado),
+    })),
     sistemasHospedados,
     totais: {
       dominios: _count?.dominios ?? 0,
@@ -421,11 +428,11 @@ async function obterArvorePlataforma(id) {
  * e monta os dados a gravar:
  *   - o fornecedor tem de pertencer ao tipo;
  *   - o nome vem do fornecedor, exceto em "Outro", onde é o utilizador que o escreve;
- *   - registryUrl e namespace só existem em CONTAINERIZACAO;
- *   - o token é encriptado antes de gravar.
+ *   - registryUrl e namespace só existem em CONTAINERIZACAO.
+ * As contas de acesso ficam de fora: são gravadas à parte (ver gravarAcessos).
  */
 function prepararDadosPlataforma(dados, atual) {
-  const { token, nome, ...data } = dados;
+  const { nome, acessos, ...data } = dados;
 
   const tipo = dados.tipo ?? atual?.tipo;
   const fornecedor = dados.fornecedor ?? atual?.fornecedor;
@@ -451,21 +458,70 @@ function prepararDadosPlataforma(dados, atual) {
     }
   }
 
-  if (token !== undefined) {
-    data.tokenCifrado = token === null ? null : encriptar(token);
-  }
-
   return data;
+}
+
+// Dados a gravar de uma conta de acesso. O token é encriptado; sem token no pedido
+// (undefined) mantém-se o que já estava, null apaga-o.
+function dadosAcesso(acesso) {
+  const data = {
+    descricao: acesso.descricao ?? null,
+    utilizador: acesso.utilizador ?? null,
+  };
+  if (acesso.token !== undefined) {
+    data.tokenCifrado = acesso.token === null ? null : encriptar(acesso.token);
+  }
+  return data;
+}
+
+/**
+ * Garante que as contas enviadas com id pertencem à plataforma (e não se repetem),
+ * antes de gravar. "idsAtuais" vazio = plataforma nova (nenhuma conta pode vir com id).
+ */
+function validarAcessos(acessos, idsAtuais) {
+  const vistos = new Set();
+  for (const { id } of acessos) {
+    if (id === undefined) continue;
+    if (!idsAtuais.has(id) || vistos.has(id)) {
+      throw new AppError(MSG.PLATAFORMA.ACESSO_NAO_ENCONTRADO, HTTP_STATUS.NOT_FOUND);
+    }
+    vistos.add(id);
+  }
+}
+
+/**
+ * A lista enviada é a lista completa: as contas com id são atualizadas, as sem id
+ * são criadas e as que já existiam mas não vieram são apagadas.
+ */
+async function gravarAcessos(tx, plataformaId, acessos) {
+  const idsMantidos = acessos.filter((a) => a.id !== undefined).map((a) => a.id);
+
+  await tx.plataformaAcesso.deleteMany({
+    where: { plataformaId, id: { notIn: idsMantidos } },
+  });
+
+  for (const acesso of acessos) {
+    if (acesso.id !== undefined) {
+      await tx.plataformaAcesso.update({ where: { id: acesso.id }, data: dadosAcesso(acesso) });
+    } else {
+      await tx.plataformaAcesso.create({ data: { ...dadosAcesso(acesso), plataformaId } });
+    }
+  }
 }
 
 async function criarPlataforma(dados, usuarioId) {
   const data = prepararDadosPlataforma(dados, null);
+  const acessos = dados.acessos ?? [];
+  validarAcessos(acessos, new Set());
   await garantirNomeLivre(data.nome);
 
   try {
     return await prisma.$transaction(async (tx) => {
       const criada = await tx.plataforma.create({
-        data, // já validado e limpo pelo Zod
+        data: {
+          ...data, // já validado e limpo pelo Zod
+          acessos: { create: acessos.map(dadosAcesso) },
+        },
         select: SELECT_PLATAFORMA,
       });
 
@@ -499,8 +555,17 @@ async function atualizarPlataforma(id, dados, usuarioId) {
     verificarMudancaDeTipo(atual, dados.tipo);
   }
 
+  // Sem "acessos" no pedido, as contas ficam como estão
+  if (dados.acessos !== undefined) {
+    validarAcessos(dados.acessos, new Set(atual.acessos.map((a) => a.id)));
+  }
+
   try {
     return await prisma.$transaction(async (tx) => {
+      if (dados.acessos !== undefined) {
+        await gravarAcessos(tx, id, dados.acessos);
+      }
+
       const atualizada = await tx.plataforma.update({
         where: { id },
         data: data,
@@ -537,23 +602,23 @@ async function apagarPlataforma(id, usuarioId) {
   });
 }
 
-async function revelarToken(id, usuarioId) {
-  const plataforma = await prisma.plataforma.findUnique({
-    where: { id },
-    select: { id: true, nome: true, tokenCifrado: true },
+async function revelarToken(id, acessoId, usuarioId) {
+  const acesso = await prisma.plataformaAcesso.findFirst({
+    where: { id: acessoId, plataformaId: id },
+    select: { descricao: true, utilizador: true, tokenCifrado: true, plataforma: { select: { nome: true } } },
   });
 
-  if (!plataforma) {
-    throw new AppError(MSG.PLATAFORMA.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+  if (!acesso) {
+    throw new AppError(MSG.PLATAFORMA.ACESSO_NAO_ENCONTRADO, HTTP_STATUS.NOT_FOUND);
   }
 
-  if (!plataforma.tokenCifrado) {
+  if (!acesso.tokenCifrado) {
     throw new AppError(MSG.PLATAFORMA.TOKEN_NAO_DEFINIDO, HTTP_STATUS.NOT_FOUND);
   }
 
   let token;
   try {
-    token = desencriptar(plataforma.tokenCifrado);
+    token = desencriptar(acesso.tokenCifrado);
   } catch (_erro) {
     throw new AppError(
       "Não foi possível desencriptar o token da plataforma. Verifique a chave de encriptação.",
@@ -563,7 +628,8 @@ async function revelarToken(id, usuarioId) {
 
   await atividadeService.registrar(prisma, {
     usuarioId,
-    acao: `Visualizou o token da plataforma "${plataforma.nome}"`,
+    // Identifica a conta (descrição ou utilizador), já que a plataforma pode ter várias
+    acao: `Visualizou o token da conta "${acesso.descricao || acesso.utilizador || "sem nome"}" da plataforma "${acesso.plataforma.nome}"`,
   });
 
   return { token };

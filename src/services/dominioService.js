@@ -17,6 +17,9 @@ const SELECT_DOMINIO = {
   dataExpiracao: true,
   plataformaId: true,
   plataforma: { select: { id: true, nome: true, tipo: true } },
+  // A conta (instituição) só com a identificação: o token nunca sai daqui
+  acessoId: true,
+  acesso: { select: { id: true, descricao: true, utilizador: true } },
   criadoEm: true,
   atualizadoEm: true,
   _count: { select: { subdominios: true } },
@@ -110,6 +113,20 @@ async function garantirPlataformaDeDominios(plataformaId) {
   }
 }
 
+// A conta escolhida tem de ser uma das contas da plataforma do domínio
+async function garantirContaDaPlataforma(acessoId, plataformaId) {
+  if (acessoId === null || acessoId === undefined) return;
+
+  const conta = await prisma.plataformaAcesso.findUnique({
+    where: { id: acessoId },
+    select: { plataformaId: true },
+  });
+
+  if (!conta || conta.plataformaId !== plataformaId) {
+    throw new AppError(MSG.DOMINIO.CONTA_FORA_DA_PLATAFORMA, HTTP_STATUS.UNPROCESSABLE_ENTITY);
+  }
+}
+
 async function garantirNomeLivre(nome, ignorarId) {
   const existente = await prisma.dominio.findUnique({
     where: { nome },
@@ -145,6 +162,7 @@ async function obterDominio(id) {
 
 async function criarDominio(dados, usuarioId) {
   await garantirPlataformaDeDominios(dados.plataformaId);
+  await garantirContaDaPlataforma(dados.acessoId, dados.plataformaId);
   await garantirNomeLivre(dados.nome);
 
   try {
@@ -169,9 +187,13 @@ async function criarDominio(dados, usuarioId) {
 async function atualizarDominio(id, dados, usuarioId) {
   const atual = await obterDominioOuFalhar(id);
 
-  if (dados.plataformaId !== undefined && dados.plataformaId !== atual.plataformaId) {
+  const mudouPlataforma = dados.plataformaId !== undefined && dados.plataformaId !== atual.plataformaId;
+  if (mudouPlataforma) {
     await garantirPlataformaDeDominios(dados.plataformaId);
+    // A conta antiga era da outra plataforma: sem conta nova no pedido, o domínio fica sem conta
+    if (dados.acessoId === undefined) dados.acessoId = null;
   }
+  await garantirContaDaPlataforma(dados.acessoId, dados.plataformaId ?? atual.plataformaId);
 
   if (dados.nome !== undefined) {
     await garantirNomeLivre(dados.nome, id);

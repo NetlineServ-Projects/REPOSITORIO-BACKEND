@@ -13,11 +13,12 @@ const {
   criarPlataformaSchema,
   atualizarPlataformaSchema,
   plataformaIdParamsSchema,
+  acessoParamsSchema,
 } = require("../../validators/plataformaValidator");
 
 // Leitura: quem vê as plataformas ou edita a infraestrutura dos sistemas (escolhe a plataforma).
 // Escrita: quem gere as plataformas.
-// Revelar o token: quem vê as plataformas, com reautenticação recente (token elevado, 3 min),
+// Revelar o token de uma conta de acesso: quem vê as plataformas, com reautenticação recente (token elevado, 3 min),
 // tal como a password do servidor.
 const leitura = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_VER, PERMISSOES.SISTEMAS_INFRA_GERIR)];
 const escrita = [authMiddleware, exigirPermissao(PERMISSOES.INFRA_GERIR)];
@@ -41,9 +42,9 @@ router.get(
 );
 
 router.get(
-  "/:id/token",
+  "/:id/acessos/:acessoId/token",
   ...leituraProtegida,
-  validate(plataformaIdParamsSchema, "params"),
+  validate(acessoParamsSchema, "params"),
   plataformaController.revelarToken
 );
 

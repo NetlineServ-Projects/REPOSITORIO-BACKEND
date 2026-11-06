@@ -25,10 +25,20 @@ const plataformaIdSchema = z
   .positive("A plataforma é inválida.")
   .max(INT_MAX, "A plataforma é inválida.");
 
+// Conta da plataforma (instituição) a que o domínio pertence; null = sem conta
+const acessoIdSchema = z
+  .number({ error: "A conta deve ser um número." })
+  .int("A conta é inválida.")
+  .positive("A conta é inválida.")
+  .max(INT_MAX, "A conta é inválida.")
+  .nullable()
+  .optional();
+
 const campos = {
   nome: nomeSchema,
   dataExpiracao: dataExpiracaoSchema,
   plataformaId: plataformaIdSchema,
+  acessoId: acessoIdSchema,
 };
 
 const criarDominioSchema = z.object(campos);
