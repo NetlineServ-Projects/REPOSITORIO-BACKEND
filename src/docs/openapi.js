@@ -391,9 +391,9 @@ rota("delete", "/sistemas/:sistemaId/infraestruturas/:ambiente/credenciais/:cred
 rota("get", "/plataformas/arvore", { tag: "Plataformas", resumo: "Árvore de todas as plataformas", descricao: "Plataformas com os respetivos servidores, domínios e imagens." });
 rota("get", "/plataformas/fornecedores", { tag: "Plataformas", resumo: "Fornecedores por tipo de plataforma" });
 rota("get", "/plataformas/:id/arvore", { tag: "Plataformas", resumo: "Árvore de uma plataforma" });
-rota("get", "/plataformas/:id/token", {
+rota("get", "/plataformas/:id/acessos/:acessoId/token", {
   tag: "Plataformas",
-  resumo: "Revelar o token da plataforma",
+  resumo: "Revelar o token de uma conta de acesso da plataforma",
   descricao: "O acesso fica registado na atividade.",
   acesso: "reautenticacao",
 });

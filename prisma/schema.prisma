@@ -128,8 +128,9 @@ model Plataforma {
   urlPainel  String?        @db.VarChar(255)
   ativo      Boolean        @default(true)
 
-  utilizador     String?
-  tokenCifrado   String? @db.Text // AES-256-GCM
+  // Contas de acesso (utilizador + token): uma plataforma pode ter várias,
+  // ex: a conta da Netline e a de um cliente que gerimos
+  acessos PlataformaAcesso[]
 
   // Só para CONTAINERIZACAO
   registryUrl String? @db.Text
@@ -148,6 +149,24 @@ model Plataforma {
   @@map("plataformas")
 }
 
+model PlataformaAcesso {
+  id           Int     @id @default(autoincrement())
+  // Para distinguir as contas, ex: "Conta da Netline", "Cliente X"
+  descricao    String? @db.VarChar(255)
+  utilizador   String? @db.VarChar(255)
+  tokenCifrado String? @db.Text // AES-256-GCM
+
+  plataformaId Int
+  plataforma   Plataforma @relation(fields: [plataformaId], references: [id], onDelete: Cascade)
+  dominios     Dominio[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([plataformaId])
+  @@map("plataforma_acessos")
+}
+
 model Dominio {
   id            Int      @id @default(autoincrement())
   nome          String   @unique @db.VarChar(255) // ex: empresa.co.mz
@@ -155,12 +174,16 @@ model Dominio {
 
   plataformaId Int
   plataforma   Plataforma @relation(fields: [plataformaId], references: [id], onDelete: Restrict)
+  // Conta da plataforma (instituição) onde o domínio está registado, ex: Netline ou um cliente
+  acessoId     Int?
+  acesso       PlataformaAcesso? @relation(fields: [acessoId], references: [id], onDelete: SetNull)
   subdominios Subdominio[]
   notificacoes Notificacao[]
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   @@index([plataformaId])
+  @@index([acessoId])
   @@map("dominios")
 }
 
