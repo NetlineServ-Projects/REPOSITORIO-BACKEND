@@ -32,6 +32,8 @@ services:
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
       # Documentação Swagger em /api/v1/docs ("false" desliga-a)
       - API_DOCS=${API_DOCS:-true}
+      # Dias que os registos de auditoria ficam guardados ("0" = para sempre)
+      - AUDITORIA_RETENCAO_DIAS=${AUDITORIA_RETENCAO_DIAS:-365}
       # Administrador criado pelo seed, só se ainda não existir
       - ADMIN_NOME=${ADMIN_NOME:-Administrador}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}

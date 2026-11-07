@@ -24,6 +24,8 @@ const routesV1 = require("./routes/v1");
 const errorMiddleware = require("./middlewares/errorMiddleware");
 const authMiddleware = require("./middlewares/authMiddleware");
 const autorizarFicheiro = require("./middlewares/ficheirosProtegidos");
+const auditoria = require("./middlewares/auditoriaMiddleware");
+const auditoriaService = require("./services/auditoriaService");
 
 const app = express();
 
@@ -37,6 +39,8 @@ app.use(
 app.use(express.json());
 app.use(cookieParser()); // lê o cookie da sessão (netline_sessao)
 app.use(languageMiddleware);
+// Auditoria: regista cada pedido (incluindo os ficheiros em /uploads) quando a resposta termina
+app.use(auditoria);
 
 // As pastas dos ficheiros enviados não estão no Git (os ficheiros são dados, não código):
 // criam-se aqui, para um clone novo ou um volume vazio funcionar logo
@@ -95,6 +99,18 @@ const PORT = process.env.PORT || 3000;
 const servidor = app.listen(PORT, () => {
     console.log(`Servidor iniciado com sucesso na porta ${PORT}`);
 });
+
+// Retenção da auditoria: apaga os registos com mais de AUDITORIA_RETENCAO_DIAS (por omissão
+// 365 dias) no arranque e depois uma vez por dia. "0" desliga a limpeza (guarda tudo).
+const diasRetencao = Number(process.env.AUDITORIA_RETENCAO_DIAS ?? 365);
+if (Number.isFinite(diasRetencao) && diasRetencao > 0) {
+    const limparAuditoria = () =>
+        auditoriaService.apagarAntigos(diasRetencao).catch((erro) =>
+            console.error("Não foi possível limpar a auditoria antiga:", erro.message)
+        );
+    limparAuditoria();
+    setInterval(limparAuditoria, 24 * 60 * 60 * 1000).unref();
+}
 
 // Paragem ordenada (docker stop, deploy): deixa de aceitar pedidos, termina os que estão
 // a meio e fecha a ligação à base de dados. No contentor o node é o processo 1 e, sem isto,

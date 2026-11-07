@@ -177,6 +177,10 @@ module.exports = {
         NO_FILE_UPLOADED: "No file was uploaded."
     },
 
+    AUDITORIA: {
+        NOT_FOUND: "Audit record not found.",
+    },
+
     SERVER: {
         INTERNAL_ERROR: "An internal server error occurred."
     }
