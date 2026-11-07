@@ -176,6 +176,10 @@ module.exports = {
         NO_FILE_UPLOADED: "Nenhum ficheiro foi enviado."
     },
 
+    AUDITORIA: {
+        NOT_FOUND: "Registo de auditoria não encontrado.",
+    },
+
     SERVER: {
         INTERNAL_ERROR: "Ocorreu um erro interno no servidor."
     }
