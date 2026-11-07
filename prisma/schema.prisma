@@ -509,3 +509,35 @@ enum EstadoServidor {
   ATIVO
   INATIVO
 }
+// Auditoria: um registo por pedido à API (quem, quando, o quê, onde e com que resultado).
+// Só os administradores a veem. Sem ligação ao utilizador por chave estrangeira: o registo
+// fica mesmo que a conta seja apagada, com o nome, e-mail e perfil copiados na altura.
+model RegistoAuditoria {
+  id            Int      @id @default(autoincrement())
+  criadoEm      DateTime @default(now())
+
+  usuarioId     Int?
+  usuarioNome   String?  @db.VarChar(255)
+  usuarioEmail  String?  @db.VarChar(255)
+  perfilNome    String?  @db.VarChar(255)
+
+  // ENTRADA, SAIDA, LOGIN_FALHADO, CONSULTA, CRIACAO, ALTERACAO, ELIMINACAO,
+  // ACESSO_SENSIVEL (revelar um segredo), ACESSO_RECUSADO (401/403), ERRO (5xx)
+  acao          String   @db.VarChar(30)
+  funcionalidade String? @db.VarChar(100) // ex: plataformas, documentos
+  recursoId     String?  @db.VarChar(100) // ex: o id do documento
+  metodo        String   @db.VarChar(10)
+  caminho       String   @db.VarChar(1000)
+  estado        Int      // código HTTP da resposta
+  duracaoMs     Int
+  ip            String?  @db.VarChar(64)
+  userAgent     String?  @db.VarChar(500)
+  // Corpo e parâmetros do pedido, sem palavras-passe, tokens nem outros segredos
+  detalhes      Json?
+
+  @@index([criadoEm])
+  @@index([usuarioId])
+  @@index([acao])
+  @@index([funcionalidade])
+  @@map("auditoria")
+}

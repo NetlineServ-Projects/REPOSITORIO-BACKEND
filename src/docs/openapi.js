@@ -424,6 +424,10 @@ crud("/servidores", {
   atualizar: servidorValidator.atualizarServidorSchema,
 });
 
+// ── Auditoria ──
+rota("get", "/auditoria", { tag: "Auditoria", resumo: "Listar os registos de auditoria", descricao: "Filtros na query: desde, ate, utilizador, acao, funcionalidade, metodo, resultado (sucesso/erro), pagina, porPagina.", acesso: "admin" });
+rota("get", "/auditoria/funcionalidades", { tag: "Auditoria", resumo: "Funcionalidades presentes nos registos", acesso: "admin" });
+rota("get", "/auditoria/:id", { tag: "Auditoria", resumo: "Obter um registo de auditoria", acesso: "admin" });
 // ── Domínios, subdomínios e imagens ──
 crud("/dominios", {
   tag: "Domínios",

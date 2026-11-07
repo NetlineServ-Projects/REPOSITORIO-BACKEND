@@ -17,6 +17,7 @@ const subdominioRoutes = require("./subdominioRoutes");
 const imagemRoutes = require("./imagemRoutes");
 const notificacaoRoutes = require("./notificacaoRoutes");
 const perfilRoutes = require("./perfilRoutes");
+const auditoriaRoutes = require("./auditoriaRoutes");
 
 router.use("/atividades", atividadeRoutes);
 
@@ -47,5 +48,8 @@ router.use("/imagens", imagemRoutes);
 router.use("/notificacoes", notificacaoRoutes);
 
 router.use("/perfis", perfilRoutes);
+
+// Só para administradores (ver auditoriaRoutes)
+router.use("/auditoria", auditoriaRoutes);
 
 module.exports = router;
