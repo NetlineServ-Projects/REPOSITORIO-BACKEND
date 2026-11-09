@@ -53,6 +53,7 @@ npm start               # http://localhost:3000
 | `COOKIE_SECURE` | `true` por defeito. `false` só num servidor de testes sem HTTPS |
 | `EMAIL_DOMINIOS_PERMITIDOS` | Domínios dos e-mails institucionais (por defeito `netline.co.mz`). Contas novas e e-mails alterados têm de ser destes domínios |
 | `LOGIN_SO_EMAIL_INSTITUCIONAL` | `true` para o login também recusar outros domínios. Ligue só depois de todas as contas, sobretudo as de administrador, terem o e-mail institucional |
+| `AUDITORIA_RETENCAO_DIAS` | Dias que os registos da auditoria ficam guardados (por defeito `180`, cerca de 6 meses). Os mais antigos são apagados no arranque e uma vez por dia. `0` guarda tudo |
 | `API_DOCS` | `true` por defeito: serve a documentação em `/api/v1/docs`. `false` desliga-a |
 | `ADMIN_NOME`, `ADMIN_EMAIL`, `ADMIN_SENHA`, ... | Administrador criado no primeiro arranque |
 

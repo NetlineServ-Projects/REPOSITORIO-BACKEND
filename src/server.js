@@ -101,8 +101,8 @@ const servidor = app.listen(PORT, () => {
 });
 
 // Retenção da auditoria: apaga os registos com mais de AUDITORIA_RETENCAO_DIAS (por omissão
-// 365 dias) no arranque e depois uma vez por dia. "0" desliga a limpeza (guarda tudo).
-const diasRetencao = Number(process.env.AUDITORIA_RETENCAO_DIAS ?? 365);
+// 180 dias, cerca de 6 meses) no arranque e depois uma vez por dia. "0" desliga a limpeza (guarda tudo).
+const diasRetencao = Number(process.env.AUDITORIA_RETENCAO_DIAS ?? 180);
 if (Number.isFinite(diasRetencao) && diasRetencao > 0) {
     const limparAuditoria = () =>
         auditoriaService.apagarAntigos(diasRetencao).catch((erro) =>
